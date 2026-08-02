@@ -18,9 +18,6 @@ export default function Home() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState('');
 
-  // Replace with your actual deployed Render API URL
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://financial-rag-api.onrender.com';
-
   const handleAnalyze = async () => {
     if (!query.trim()) return;
 
@@ -29,14 +26,15 @@ export default function Home() {
     setResult(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+      const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_query: query }),
       });
 
       if (!response.ok) {
-        throw new Error(`Server returned status ${response.status}`);
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || `Server returned status ${response.status}`);
       }
 
       const data: AnalysisResult = await response.json();
