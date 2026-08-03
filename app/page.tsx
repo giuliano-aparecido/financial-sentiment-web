@@ -120,7 +120,7 @@ export default function Home() {
 
           <div>
             <strong>Retrieved RAG News Context:</strong>
-            <pre style={{ backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '13px', overflowX: 'auto' }}>
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '13px', overflowX: 'auto' }}>
               {result.live_news_retrieved}
             </pre>
           </div>
