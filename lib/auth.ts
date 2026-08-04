@@ -48,5 +48,11 @@ export const authOptions: NextAuthOptions = {
       return !!user.email && ALLOWED_EMAILS.has(user.email.toLowerCase());
     },
   },
+  // Absolute ceiling on how long a session cookie is valid, regardless of
+  // activity - defense in depth alongside the client-side idle-logout timer
+  // (components/SessionProvider.tsx), which is what actually signs an idle
+  // user out. This just bounds the worst case (e.g. a tab left open with
+  // its JS somehow not running) instead of NextAuth's 30-day default.
+  session: { maxAge: 60 * 60 },
   pages: IS_DEV ? {} : { signIn: '/login', error: '/login' },
 };

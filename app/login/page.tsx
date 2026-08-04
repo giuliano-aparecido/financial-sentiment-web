@@ -34,9 +34,9 @@ function LoginContent() {
               fontSize: '14px',
             }}
           >
-            {error === 'AccessDenied'
-              ? 'Access denied. Only authorized users can access this app.'
-              : `Sign in error: ${error}`}
+            {error === 'AccessDenied' && 'Access denied. Only authorized users can access this app.'}
+            {error === 'SessionExpired' && 'You were signed out after a period of inactivity. Please sign in again.'}
+            {error !== 'AccessDenied' && error !== 'SessionExpired' && `Sign in error: ${error}`}
           </div>
         )}
 
