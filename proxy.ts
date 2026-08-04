@@ -1,11 +1,11 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextRequest } from 'next/server';
 
-export const middleware =
+export const proxy =
   process.env.NODE_ENV === 'development'
     ? (req: NextRequest) => undefined
     : withAuth(
-        function middleware() {
+        function proxy() {
           return undefined;
         },
         {
