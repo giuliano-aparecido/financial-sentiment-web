@@ -81,11 +81,14 @@ export default function Home() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+        <p style={{ margin: 0, fontSize: '13px', color: '#666' }}>
+          Tip: wrap the ticker in a cashtag, e.g. <code>$AAPL</code>, so it&apos;s picked up reliably.
+        </p>
         <textarea
           rows={4}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. Will AAPL go up or down based on recent news and quarterly results?"
+          placeholder="e.g. Will $AAPL go up or down based on recent news and quarterly results?"
           style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '16px' }}
         />
         <button
