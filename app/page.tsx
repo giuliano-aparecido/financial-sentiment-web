@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { signOut, useSession } from 'next-auth/react';
 
 interface AnalysisResult {
   ticker?: string;
@@ -13,6 +14,7 @@ interface AnalysisResult {
 }
 
 export default function Home() {
+  const { data: session } = useSession();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -49,10 +51,34 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: '800px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <h2>📈 Open-Source Financial RAG Reasoning Engine</h2>
-      <p style={{ color: '#666' }}>
-        Enter any stock query or news prompt. The engine fetches real-time news and runs fine-tuned chain-of-thought reasoning.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h2>📈 Open-Source Financial RAG Reasoning Engine</h2>
+          <p style={{ color: '#666' }}>
+            Enter any stock query or news prompt. The engine fetches real-time news and runs fine-tuned chain-of-thought reasoning.
+          </p>
+        </div>
+        {session?.user?.email && (
+          <div style={{ textAlign: 'right', whiteSpace: 'nowrap', marginLeft: '16px' }}>
+            <div style={{ color: '#666', fontSize: '13px' }}>{session.user.email}</div>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              style={{
+                marginTop: '4px',
+                padding: '4px 10px',
+                backgroundColor: 'transparent',
+                color: '#0070f3',
+                border: '1px solid #0070f3',
+                borderRadius: '6px',
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
         <textarea

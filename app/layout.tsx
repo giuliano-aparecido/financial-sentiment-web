@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { SessionProvider } from '@/components/SessionProvider';
 
 export const metadata: Metadata = {
   title: 'Financial RAG Reasoning Engine',
@@ -12,7 +13,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SessionProvider>{children}</SessionProvider>
+      </body>
     </html>
   );
 }
