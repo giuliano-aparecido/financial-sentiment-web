@@ -9,8 +9,40 @@ interface AnalysisResult {
   predicted_direction?: 'BULLISH' | 'BEARISH' | string;
   confidence?: number;
   reasoning?: string;
+  answer?: string;
   raw_response?: string;
   live_news_retrieved?: string;
+  market_data?: string;
+  valuation?: string;
+  earnings?: string;
+}
+
+// A data card renders nothing when its field is missing, or when it's
+// exactly "Data unavailable." (the api's fetchers - and the model, when it
+// says so itself - use this literal string for a failed fetch; "Not
+// applicable ..." from a computed-but-inapplicable valuation is real
+// content and should still render, so this checks for that one exact
+// string rather than any falsy/empty content).
+function hasData(block: string | undefined): block is string {
+  return typeof block === 'string' && block.trim().length > 0 && block !== 'Data unavailable.';
+}
+
+// Renders one of the market_data/valuation/earnings blocks the api
+// returns as a preformatted, already-labeled string (see financial-
+// sentiment-api's app/services/{fundamentals,valuation,earnings}.py) -
+// nothing to parse or reshape here, just display it. Renders nothing when
+// this specific block has no data, so a partial-outage response (e.g.
+// yfinance down but the model still answered) shows only the cards that
+// actually have something to say instead of three empty boxes.
+function DataCard({ title, content }: { title: string; content?: string }) {
+  if (!hasData(content)) return null;
+
+  return (
+    <div style={{ backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd' }}>
+      <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#666' }}>{title}</strong>
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontSize: '13px' }}>{content}</pre>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -118,6 +150,21 @@ export default function Home() {
         <div style={{ marginTop: '28px', padding: '20px', border: '1px solid #e5e7eb', borderRadius: '8px', backgroundColor: '#f9fafb' }}>
           <h3>Analysis Results {result.ticker ? `(${result.ticker})` : ''}</h3>
 
+          {hasData(result.answer) && (
+            <div
+              style={{
+                marginBottom: '16px',
+                padding: '14px',
+                backgroundColor: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: '6px',
+                fontSize: '16px',
+              }}
+            >
+              {result.answer}
+            </div>
+          )}
+
           <div style={{ marginBottom: '12px' }}>
             <strong>Architecture:</strong> <code>{result.model_architecture}</code>
           </div>
@@ -146,6 +193,21 @@ export default function Home() {
               {result.reasoning || result.raw_response}
             </p>
           </div>
+
+          {(hasData(result.market_data) || hasData(result.valuation) || hasData(result.earnings)) && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '12px',
+                marginBottom: '16px',
+              }}
+            >
+              <DataCard title="Market Data" content={result.market_data} />
+              <DataCard title="Valuation" content={result.valuation} />
+              <DataCard title="Recent Earnings" content={result.earnings} />
+            </div>
+          )}
 
           <div>
             <strong>Retrieved RAG News Context:</strong>
