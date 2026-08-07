@@ -36,6 +36,14 @@ proxy.ts                        Page-level route protection (was
                                 renamed the convention)
 ```
 
+`page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
+`valuation`/`earnings` fields (the "analyst pipeline" expansion - see the
+sibling `financial-sentiment-model-colab`/`financial-sentiment-api` repos).
+Each renders only when present and not exactly `"Data unavailable."`, so
+the UI degrades gracefully both against the current API (which doesn't
+send these yet) and against a future one where only some of them fetched
+successfully.
+
 Every request to the RAG API goes through `app/api/analyze/route.ts`,
 never directly from the browser — that's the one place `RAG_API_URL`/
 `RAG_API_KEY` are read, so the shared secret never reaches client-side
