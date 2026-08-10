@@ -8,6 +8,13 @@ interface CrashReboundRow {
   name: string;
   sector: string | null;
   market_cap: number | null;
+  trailing_pe: number | null;
+  forward_pe: number | null;
+  dividend_yield: number | null;
+  ex_dividend_date: string | null;
+  beta: number | null;
+  fifty_two_week_high: number | null;
+  fifty_two_week_low: number | null;
   loss_date: string;
   loss_close: number;
   loss_volume: number | null;
@@ -58,6 +65,18 @@ function formatMarketCap(value: number | null): string {
 
 function formatVolumeRatio(value: number | null): string {
   return value == null ? 'N/A' : `${value.toFixed(2)}x`;
+}
+
+function formatNumber(value: number | null, decimals = 2): string {
+  return value == null ? 'N/A' : value.toFixed(decimals);
+}
+
+function formatPercent(value: number | null, decimals = 2): string {
+  return value == null ? 'N/A' : `${value.toFixed(decimals)}%`;
+}
+
+function formatVolume(value: number | null): string {
+  return value == null ? 'N/A' : value.toLocaleString();
 }
 
 const cellStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #eee', fontSize: '13px' };
@@ -270,9 +289,10 @@ export default function SmallCapsReboundPage() {
       <section style={{ marginTop: '28px' }}>
         <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 3 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Stocks with a day down 5%+ followed immediately by a day up 5%+. Includes volume vs. each stock&apos;s own
-          3-month average (a heavy-volume rebound looks more like real buying than an illiquid bounce) and any
-          researched news explaining the move.
+          Stocks with a day down 5%+ followed immediately by a day up 5%+. Shows each day&apos;s own volume (raw and
+          vs. each stock&apos;s 3-month average - a heavy-volume rebound looks more like real buying than an illiquid
+          bounce), current company data (market cap, trailing/forward P/E, dividend yield, ex-dividend date, beta,
+          52-week range), and any researched news explaining the move.
         </p>
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -285,16 +305,34 @@ export default function SmallCapsReboundPage() {
                   <SortableHeader label="Ticker" sortKey="ticker" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Name" sortKey="name" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Sector" sortKey="sector" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Loss day" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Market cap" sortKey="market_cap" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="P/E (trailing)" sortKey="trailing_pe" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="P/E (fwd)" sortKey="forward_pe" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Div. yield" sortKey="dividend_yield" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Ex-div date" sortKey="ex_dividend_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Beta" sortKey="beta" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="52W high" sortKey="fifty_two_week_high" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="52W low" sortKey="fifty_two_week_low" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Loss date" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Loss close" sortKey="loss_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Loss volume" sortKey="loss_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader
+                    label="Loss vol. vs 3mo avg"
+                    sortKey="loss_volume_vs_3mo_avg"
+                    sort={crashSort}
+                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
+                  />
                   <SortableHeader label="Drop %" sortKey="drop_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain day" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Gain volume" sortKey="gain_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader
                     label="Gain vol. vs 3mo avg"
                     sortKey="gain_volume_vs_3mo_avg"
                     sort={crashSort}
                     onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
                   />
+                  <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="News" sortKey="news_headline" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                 </tr>
               </thead>
@@ -306,19 +344,24 @@ export default function SmallCapsReboundPage() {
                     </td>
                     <td style={cellStyle}>{row.name}</td>
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
-                    <td style={cellStyle}>
-                      {row.loss_date}
-                      <br />
-                      CHF {row.loss_close.toFixed(2)}
-                    </td>
+                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
+                    <td style={cellStyle}>{formatNumber(row.trailing_pe)}</td>
+                    <td style={cellStyle}>{formatNumber(row.forward_pe)}</td>
+                    <td style={cellStyle}>{formatPercent(row.dividend_yield)}</td>
+                    <td style={cellStyle}>{row.ex_dividend_date ?? 'N/A'}</td>
+                    <td style={cellStyle}>{formatNumber(row.beta)}</td>
+                    <td style={cellStyle}>{row.fifty_two_week_high != null ? `CHF ${row.fifty_two_week_high.toFixed(2)}` : 'N/A'}</td>
+                    <td style={cellStyle}>{row.fifty_two_week_low != null ? `CHF ${row.fifty_two_week_low.toFixed(2)}` : 'N/A'}</td>
+                    <td style={cellStyle}>{row.loss_date}</td>
+                    <td style={cellStyle}>CHF {row.loss_close.toFixed(2)}</td>
+                    <td style={cellStyle}>{formatVolume(row.loss_volume)}</td>
+                    <td style={cellStyle}>{formatVolumeRatio(row.loss_volume_vs_3mo_avg)}</td>
                     <td style={{ ...cellStyle, color: '#dc2626' }}>{row.drop_pct.toFixed(2)}%</td>
-                    <td style={cellStyle}>
-                      {row.gain_date}
-                      <br />
-                      CHF {row.gain_close.toFixed(2)}
-                    </td>
-                    <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
+                    <td style={cellStyle}>{row.gain_date}</td>
+                    <td style={cellStyle}>CHF {row.gain_close.toFixed(2)}</td>
+                    <td style={cellStyle}>{formatVolume(row.gain_volume)}</td>
                     <td style={cellStyle}>{formatVolumeRatio(row.gain_volume_vs_3mo_avg)}</td>
+                    <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
                     <td style={{ ...cellStyle, maxWidth: '320px', whiteSpace: 'normal' }}>
                       {row.news_headline ? (
                         row.news_source ? (
