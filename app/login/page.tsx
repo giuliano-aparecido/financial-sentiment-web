@@ -7,6 +7,16 @@ import { useSearchParams } from 'next/navigation';
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
+  // proxy.ts's withAuth middleware appends ?callbackUrl=<original path> when
+  // it redirects an unauthenticated request here - reusing it (instead of
+  // always hardcoding '/') is what makes signing in from a deep link (e.g.
+  // /research/small-caps-rebound) land back on that page instead of always
+  // bouncing to the main page. Falls back to '/' when absent (e.g. a user
+  // navigating to /login directly). NextAuth's own default `redirect`
+  // callback (not overridden in lib/auth.ts) already restricts this to
+  // same-origin URLs, so an attacker-crafted callbackUrl pointing off-site
+  // can't be used as an open redirect here.
+  const callbackUrl = searchParams.get('callbackUrl') || '/';
 
   return (
     <main
@@ -41,7 +51,7 @@ function LoginContent() {
         )}
 
         <button
-          onClick={() => signIn('google', { callbackUrl: '/' })}
+          onClick={() => signIn('google', { callbackUrl })}
           style={{
             width: '100%',
             padding: '12px 24px',
