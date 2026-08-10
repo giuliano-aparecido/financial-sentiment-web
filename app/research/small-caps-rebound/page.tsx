@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { signOut, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
+import { signOutToLogin } from '@/lib/signOutToLogin';
 
 interface CrashReboundRow {
   ticker: string;
@@ -311,7 +312,7 @@ export default function SmallCapsReboundPage() {
           <div style={{ textAlign: 'right', whiteSpace: 'nowrap', marginLeft: '16px' }}>
             <div style={{ color: '#666', fontSize: '13px' }}>{session.user.email}</div>
             <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
+              onClick={() => signOutToLogin()}
               style={{
                 marginTop: '4px',
                 padding: '4px 10px',
