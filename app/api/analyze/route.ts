@@ -3,10 +3,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 
-// The API's own HF inference call can take up to 45s; give it headroom
-// before this route's own budget (below) or a hung upstream (e.g. a stale
-// Colab/ngrok tunnel) cuts it off with an opaque error.
-export const maxDuration = 60;
+// The API's own inference call can take up to 280s against the Modal
+// scale-to-zero backend - a real cold start alone measured ~120s live, well
+// past what a 45s/60s budget here assumed (that was sized for the old
+// always-warm HF Inference Endpoint / Colab tunnel). 300 is Vercel Hobby's
+// actual hard cap (with Fluid Compute) - see AbortSignal.timeout below for
+// why this route's own fetch aborts a little before that ceiling instead of
+// letting Vercel hard-kill the function mid-request.
+export const maxDuration = 300;
 
 const RAG_API_URL = process.env.RAG_API_URL;
 const RAG_API_KEY = process.env.RAG_API_KEY;
@@ -55,10 +59,11 @@ export async function POST(request: NextRequest) {
         'X-API-Key': RAG_API_KEY,
       },
       body: JSON.stringify({ user_query: userQuery }),
-      // Slightly above the API's own 45s inference timeout, so a hung
-      // upstream (e.g. a stale Colab/ngrok tunnel) fails fast with a clear
-      // message instead of the request sitting until Vercel's own limit.
-      signal: AbortSignal.timeout(50_000),
+      // Above the API's own 280s inference timeout, under this route's
+      // maxDuration above - so a hung upstream fails fast with a clear
+      // message from this route's own catch block, instead of Vercel
+      // hard-killing the function first with no message at all.
+      signal: AbortSignal.timeout(290_000),
     });
 
     const data = await upstream.json().catch(() => null);
