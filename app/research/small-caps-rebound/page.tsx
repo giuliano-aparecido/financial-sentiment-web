@@ -304,8 +304,7 @@ export default function SmallCapsReboundPage() {
         <div>
           <h2>🇨🇭 Swiss Small-Cap Research</h2>
           <p style={{ color: '#666' }}>
-            Runs two scans against SIX Swiss Exchange, Switzerland-domiciled small caps (excludes foreign listings
-            like Bitcoin Group SE or ams-OSRAM). Free-data based (yfinance) - for research, not investment advice.
+            SIX Swiss Exchange small caps, domestic only. For research, not investment advice.
           </p>
         </div>
         {session?.user?.email && (
@@ -368,8 +367,8 @@ export default function SmallCapsReboundPage() {
       <section style={{ marginTop: '28px' }}>
         <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 3 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Stocks with a day down 5%+ followed immediately by a day up 5%+. Shows each day&apos;s own volume (a
-          heavy-volume rebound looks more like real buying than an illiquid bounce) and current market cap.
+          Down 5%+ then up 5%+ next day. Cached once per day - Refresh gets a new day&apos;s data, not a re-scan of
+          today&apos;s already-cached result.
         </p>
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -424,9 +423,7 @@ export default function SmallCapsReboundPage() {
       <section style={{ marginTop: '32px' }}>
         <h3 style={{ marginBottom: '4px' }}>Big loss (today)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Stocks down 5%+ today - no volume filtering, so a big loss on thin volume and one on heavy volume both show
-          up. Ordered by volume vs. each stock&apos;s own 3-month average (thinnest first) then by loss size, as a
-          reading aid: a stock near the top moved on unusually little trading.
+          Down 5%+ today, thinnest volume first. Shows the last scan - click Refresh to update.
         </p>
         {status.status === 'done' && (status.today_screener?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
