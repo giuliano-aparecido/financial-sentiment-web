@@ -62,7 +62,7 @@ same backend, same shared secret, no separate env vars needed.
 
 `page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
 `valuation`/`earnings` fields (the "analyst pipeline" expansion - see the
-sibling `financial-sentiment-model-colab`/`financial-sentiment-api` repos).
+sibling `financial-sentiment-model`/`financial-sentiment-api` repos).
 Each renders only when present and not exactly `"Data unavailable."`, so
 the UI degrades gracefully both against the current API (which doesn't
 send these yet) and against a future one where only some of them fetched
