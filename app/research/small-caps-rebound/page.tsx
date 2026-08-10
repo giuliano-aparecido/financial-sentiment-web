@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 
 interface CrashReboundRow {
@@ -70,11 +70,81 @@ const headerCellStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
+type SortDirection = 'asc' | 'desc';
+type SortState = { key: string | null; direction: SortDirection };
+
+// Generic over the row shape so both tables (different columns) share one
+// implementation. Nulls always sort last regardless of direction - "no
+// data" isn't meaningfully "low" or "high", and burying it at the bottom
+// either way is less surprising than it jumping to the top on a
+// descending sort.
+function sortRows<T extends object>(rows: T[], sort: SortState): T[] {
+  if (!sort.key) return rows;
+  const key = sort.key;
+  const dir = sort.direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = (a as Record<string, unknown>)[key];
+    const bv = (b as Record<string, unknown>)[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string' && typeof bv === 'string') {
+      return dir * av.localeCompare(bv);
+    }
+    return dir * (Number(av) - Number(bv));
+  });
+}
+
+function toggleSort(current: SortState, key: string): SortState {
+  if (current.key !== key) return { key, direction: 'asc' };
+  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortState;
+  onSort: (key: string) => void;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      style={{ ...headerCellStyle, cursor: 'pointer', userSelect: 'none' }}
+      onClick={() => onSort(sortKey)}
+      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      {label}
+      <span style={{ color: active ? '#0070f3' : '#ccc', marginLeft: '4px' }}>
+        {active ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
+  );
+}
+
 export default function SmallCapsReboundPage() {
   const { data: session } = useSession();
   const [status, setStatus] = useState<ScanStatus>({ status: 'idle' });
   const [error, setError] = useState('');
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Default to null (backend order: loss_date desc / volume ratio asc -
+  // see research_job.py's callers) until the user clicks a header.
+  const [crashSort, setCrashSort] = useState<SortState>({ key: null, direction: 'asc' });
+  const [todaySort, setTodaySort] = useState<SortState>({ key: null, direction: 'asc' });
+
+  const sortedCrashRebound = useMemo(
+    () => sortRows(status.crash_rebound ?? [], crashSort),
+    [status.crash_rebound, crashSort],
+  );
+  const sortedTodayScreener = useMemo(
+    () => sortRows(status.today_screener ?? [], todaySort),
+    [status.today_screener, todaySort],
+  );
 
   const isRunning = status.status === 'running';
 
@@ -212,19 +282,24 @@ export default function SmallCapsReboundPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
               <thead>
                 <tr>
-                  <th style={headerCellStyle}>Ticker</th>
-                  <th style={headerCellStyle}>Name</th>
-                  <th style={headerCellStyle}>Sector</th>
-                  <th style={headerCellStyle}>Loss day</th>
-                  <th style={headerCellStyle}>Drop %</th>
-                  <th style={headerCellStyle}>Gain day</th>
-                  <th style={headerCellStyle}>Gain %</th>
-                  <th style={headerCellStyle}>Gain vol. vs 3mo avg</th>
-                  <th style={headerCellStyle}>News</th>
+                  <SortableHeader label="Ticker" sortKey="ticker" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Name" sortKey="name" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Sector" sortKey="sector" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Loss day" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Drop %" sortKey="drop_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Gain day" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader
+                    label="Gain vol. vs 3mo avg"
+                    sortKey="gain_volume_vs_3mo_avg"
+                    sort={crashSort}
+                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
+                  />
+                  <SortableHeader label="News" sortKey="news_headline" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                 </tr>
               </thead>
               <tbody>
-                {status.crash_rebound!.map((row, i) => (
+                {sortedCrashRebound.map((row, i) => (
                   <tr key={`${row.ticker}-${row.loss_date}-${i}`}>
                     <td style={cellStyle}>
                       <strong>{row.ticker}</strong>
@@ -280,18 +355,23 @@ export default function SmallCapsReboundPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
               <thead>
                 <tr>
-                  <th style={headerCellStyle}>Ticker</th>
-                  <th style={headerCellStyle}>Name</th>
-                  <th style={headerCellStyle}>Sector</th>
-                  <th style={headerCellStyle}>Market cap</th>
-                  <th style={headerCellStyle}>Price</th>
-                  <th style={headerCellStyle}>Change %</th>
-                  <th style={headerCellStyle}>Volume today</th>
-                  <th style={headerCellStyle}>Vol. vs 3mo avg</th>
+                  <SortableHeader label="Ticker" sortKey="ticker" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Name" sortKey="name" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Sector" sortKey="sector" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Market cap" sortKey="market_cap" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Price" sortKey="price" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Change %" sortKey="change_pct" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Volume today" sortKey="volume_today" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader
+                    label="Vol. vs 3mo avg"
+                    sortKey="volume_vs_3mo_avg"
+                    sort={todaySort}
+                    onSort={(k) => setTodaySort(toggleSort(todaySort, k))}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {status.today_screener!.map((row, i) => (
+                {sortedTodayScreener.map((row, i) => (
                   <tr key={`${row.ticker}-${i}`}>
                     <td style={cellStyle}>
                       <strong>{row.ticker}</strong>
