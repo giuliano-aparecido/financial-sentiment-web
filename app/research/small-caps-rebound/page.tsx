@@ -241,33 +241,31 @@ export default function SmallCapsReboundPage() {
     }
   };
 
-  const pollStatus = async () => {
+  // Returns the fetched status (or null on failure) so callers - both the
+  // recursive "still running" poll below AND the mount effect further
+  // down, which needs to inspect it to decide whether to auto-refresh -
+  // can see the result, not just have it silently applied to state.
+  const pollStatus = async (): Promise<ScanStatus | null> => {
     try {
       const response = await fetch('/api/research/small-caps/status');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setError(data?.error || `Server returned status ${response.status}`);
         stopPolling();
-        return;
+        return null;
       }
-      setStatus(data as ScanStatus);
-      if (data?.status === 'running') {
+      const parsed = data as ScanStatus;
+      setStatus(parsed);
+      if (parsed.status === 'running') {
         pollTimer.current = setTimeout(pollStatus, POLL_INTERVAL_MS);
       }
+      return parsed;
     } catch {
       setError('Lost connection while checking scan status.');
       stopPolling();
+      return null;
     }
   };
-
-  // On load, check whether a scan is already running/done from an earlier
-  // visit (single global job on the backend - see research_job.py) rather
-  // than assuming a blank slate.
-  useEffect(() => {
-    pollStatus();
-    return stopPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleRefresh = async () => {
     setError('');
@@ -285,6 +283,37 @@ export default function SmallCapsReboundPage() {
       setError('Failed to reach the research backend.');
     }
   };
+
+  // "Stale" means the last scan finished on a previous UTC day - crash-
+  // rebound's backend cache (research_job.py) is keyed on UTC calendar
+  // day, so this mirrors that boundary exactly rather than inventing a
+  // separate one. Comparing ISO date PREFIXES (not constructing Date
+  // objects) is deliberate: finished_at is already a UTC ISO timestamp
+  // (see research_job.py's _now()), so its first 10 characters ARE the
+  // UTC date - no timezone conversion to get subtly wrong.
+  const isStaleOrEmpty = (data: ScanStatus): boolean => {
+    if (data.status === 'idle') return true;
+    if (data.status !== 'done' || !data.finished_at) return false;
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    return data.finished_at.slice(0, 10) !== todayUtc;
+  };
+
+  // On load: check whether a scan is already running/done from an earlier
+  // visit (single global job on the backend - see research_job.py), and
+  // if what's there is empty (nothing has run yet, e.g. right after a
+  // Render free-tier cold start wiped the in-memory cache) or from a
+  // previous day, kick off a fresh scan automatically rather than making
+  // the user notice and click Refresh themselves.
+  useEffect(() => {
+    (async () => {
+      const data = await pollStatus();
+      if (data && isStaleOrEmpty(data)) {
+        handleRefresh();
+      }
+    })();
+    return stopPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
