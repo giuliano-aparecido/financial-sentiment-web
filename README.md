@@ -22,19 +22,43 @@ doing it properly, not because it needs to scale or handle real traffic.
 
 ```
 app/
-  page.tsx                    The only real page: query box, results
+  page.tsx                    The main page: query box, results
+  research/small-caps-rebound/page.tsx   Swiss small-cap research page -
+                                Refresh button, two result tables (see
+                                below)
   login/page.tsx               Sign-in page (Google OAuth in production)
   api/analyze/route.ts          Server-side proxy to the RAG API - the
                                 only place RAG_API_KEY is ever read, so
                                 it never reaches the browser bundle
+  api/research/small-caps/start/route.ts    Kicks off the small-cap scan
+                                (proxies to the RAG API's background-job
+                                endpoint - see financial-sentiment-api's
+                                app/services/research_job.py)
+  api/research/small-caps/status/route.ts   Polled by the page while a
+                                scan runs
   api/auth/[...nextauth]/route.ts   NextAuth handler
 components/SessionProvider.tsx  NextAuth session context + idle-logout
 lib/auth.ts                     NextAuth config (allowlist, dev bypass)
 lib/rateLimit.ts                Best-effort per-user rate limit on the proxy
+                                routes - parameterized (window/max) so the
+                                research routes can use a stricter/looser
+                                budget than /api/analyze's, under a
+                                differently-prefixed key so the buckets
+                                don't collide
 proxy.ts                        Page-level route protection (was
                                 middleware.ts before the Next.js 16 upgrade
                                 renamed the convention)
 ```
+
+**Swiss small-cap research page** (`/research/small-caps-rebound`): runs
+two Python scans on the RAG API backend (which already runs yfinance in
+production - this Next.js app is deployed on Vercel serverless functions,
+which can't run a 1-3 minute, ~150+ network-call Python script at all, no
+Python runtime and execution time caps far below that). Since a scan takes
+too long for a single request/response, the start route kicks off a
+background job on the backend and returns immediately; the page polls the
+status route every 5s until it's done. Reuses `RAG_API_URL`/`RAG_API_KEY` -
+same backend, same shared secret, no separate env vars needed.
 
 `page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
 `valuation`/`earnings` fields (the "analyst pipeline" expansion - see the
@@ -87,10 +111,13 @@ running (or deployed) at the URL configured in `RAG_API_URL`.
 ## Tests / build
 
 ```bash
-npx vitest run    # route-handler tests (analyze proxy error mapping)
+npx vitest run    # route-handler tests (analyze/research proxy error
+                   # mapping, rate-limit key isolation)
 npx tsc --noEmit
 npm run build      # also catches Edge Runtime issues in proxy.ts that
-                   # tsc alone won't
+                   # tsc alone won't; requires NEXTAUTH_SECRET set (any
+                   # value locally) since lib/auth.ts refuses to even
+                   # evaluate without one outside development
 ```
 
 ## Deployment
