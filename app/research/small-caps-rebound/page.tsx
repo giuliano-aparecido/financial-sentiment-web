@@ -266,13 +266,14 @@ export default function SmallCapsReboundPage() {
       </section>
 
       <section style={{ marginTop: '32px' }}>
-        <h3 style={{ marginBottom: '4px' }}>Big loss, thin volume (today)</h3>
+        <h3 style={{ marginBottom: '4px' }}>All small caps (today)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Stocks down 5%+ today, ordered by volume vs. their own 3-month average (thinnest first) then by loss size.
-          A big move on unusually low volume can mean a stale/wide quote rather than real, broad selling.
+          Every scanned small cap&apos;s today numbers - no loss or volume filtering, this is the full universe.
+          Ordered by volume vs. each stock&apos;s own 3-month average (thinnest first) then by move size, purely as a
+          reading aid: a stock near the top is trading unusually thin today, whether it&apos;s up, down, or flat.
         </p>
         {status.status === 'done' && (status.today_screener?.length ?? 0) === 0 && (
-          <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
+          <p style={{ color: '#666', fontSize: '13px' }}>No live quotes available yet today.</p>
         )}
         {status.status === 'done' && (status.today_screener?.length ?? 0) > 0 && (
           <div style={{ overflowX: 'auto' }}>
@@ -299,7 +300,10 @@ export default function SmallCapsReboundPage() {
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
                     <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
                     <td style={cellStyle}>{row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A'}</td>
-                    <td style={{ ...cellStyle, color: '#dc2626' }}>{row.change_pct.toFixed(2)}%</td>
+                    <td style={{ ...cellStyle, color: row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
+                      {row.change_pct > 0 ? '+' : ''}
+                      {row.change_pct.toFixed(2)}%
+                    </td>
                     <td style={cellStyle}>{row.volume_today.toLocaleString()}</td>
                     <td style={cellStyle}>{formatVolumeRatio(row.volume_vs_3mo_avg)}</td>
                   </tr>
