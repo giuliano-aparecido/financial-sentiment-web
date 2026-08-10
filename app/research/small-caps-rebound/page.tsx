@@ -8,8 +8,6 @@ interface CrashReboundRow {
   name: string;
   sector: string | null;
   market_cap: number | null;
-  trailing_pe: number | null;
-  forward_pe: number | null;
   loss_date: string;
   loss_close: number;
   loss_volume: number | null;
@@ -17,7 +15,6 @@ interface CrashReboundRow {
   gain_date: string;
   gain_close: number;
   gain_volume: number | null;
-  gain_volume_vs_3mo_avg: number | null;
   gain_pct: number;
 }
 
@@ -52,14 +49,6 @@ function formatMarketCap(value: number | null): string {
   if (value == null) return 'N/A';
   if (value >= 1e9) return `CHF ${(value / 1e9).toFixed(2)}B`;
   return `CHF ${(value / 1e6).toFixed(0)}M`;
-}
-
-function formatVolumeRatio(value: number | null): string {
-  return value == null ? 'N/A' : `${value.toFixed(2)}x`;
-}
-
-function formatNumber(value: number | null, decimals = 2): string {
-  return value == null ? 'N/A' : value.toFixed(decimals);
 }
 
 function formatVolume(value: number | null): string {
@@ -277,8 +266,7 @@ export default function SmallCapsReboundPage() {
         <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 3 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Stocks with a day down 5%+ followed immediately by a day up 5%+. Shows each day&apos;s own volume (a
-          heavy-volume rebound looks more like real buying than an illiquid bounce) and current company data (market
-          cap, trailing/forward P/E).
+          heavy-volume rebound looks more like real buying than an illiquid bounce) and current market cap.
         </p>
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -292,8 +280,6 @@ export default function SmallCapsReboundPage() {
                   <SortableHeader label="Name" sortKey="name" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Sector" sortKey="sector" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Market cap" sortKey="market_cap" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="P/E (trailing)" sortKey="trailing_pe" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="P/E (fwd)" sortKey="forward_pe" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Loss date" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Loss close" sortKey="loss_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Loss volume" sortKey="loss_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
@@ -301,12 +287,6 @@ export default function SmallCapsReboundPage() {
                   <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain volume" sortKey="gain_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader
-                    label="Gain vol. vs 3mo avg"
-                    sortKey="gain_volume_vs_3mo_avg"
-                    sort={crashSort}
-                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
-                  />
                   <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                 </tr>
               </thead>
@@ -319,8 +299,6 @@ export default function SmallCapsReboundPage() {
                     <td style={cellStyle}>{row.name}</td>
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
                     <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
-                    <td style={cellStyle}>{formatNumber(row.trailing_pe)}</td>
-                    <td style={cellStyle}>{formatNumber(row.forward_pe)}</td>
                     <td style={cellStyle}>{row.loss_date}</td>
                     <td style={cellStyle}>CHF {row.loss_close.toFixed(2)}</td>
                     <td style={cellStyle}>{formatVolume(row.loss_volume)}</td>
@@ -328,7 +306,6 @@ export default function SmallCapsReboundPage() {
                     <td style={cellStyle}>{row.gain_date}</td>
                     <td style={cellStyle}>CHF {row.gain_close.toFixed(2)}</td>
                     <td style={cellStyle}>{formatVolume(row.gain_volume)}</td>
-                    <td style={cellStyle}>{formatVolumeRatio(row.gain_volume_vs_3mo_avg)}</td>
                     <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
                   </tr>
                 ))}
