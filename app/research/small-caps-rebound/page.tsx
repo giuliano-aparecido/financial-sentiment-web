@@ -55,6 +55,76 @@ function formatVolume(value: number | null): string {
   return value == null ? 'N/A' : value.toLocaleString();
 }
 
+interface CsvColumn<T> {
+  key: Extract<keyof T, string>;
+  label: string;
+}
+
+// Column lists for CSV export, kept separate from the <table> JSX below
+// rather than driving both from one shared definition - the table cells
+// have per-column formatting/coloring (CHF prefixes, +/- signs, red/green)
+// that isn't worth generalizing into a render-prop just for this. That
+// means these lists need to be kept in sync BY HAND with the <thead>
+// columns below if either changes - these columns have already changed
+// five times over this page's life, so don't forget this list when they
+// change again.
+const CRASH_REBOUND_CSV_COLUMNS: CsvColumn<CrashReboundRow>[] = [
+  { key: 'ticker', label: 'Ticker' },
+  { key: 'name', label: 'Name' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'market_cap', label: 'Market cap' },
+  { key: 'loss_date', label: 'Loss date' },
+  { key: 'loss_close', label: 'Loss close' },
+  { key: 'loss_volume', label: 'Loss volume' },
+  { key: 'drop_pct', label: 'Drop %' },
+  { key: 'gain_date', label: 'Gain date' },
+  { key: 'gain_close', label: 'Gain close' },
+  { key: 'gain_volume', label: 'Gain volume' },
+  { key: 'gain_pct', label: 'Gain %' },
+];
+
+const TODAY_SCREENER_CSV_COLUMNS: CsvColumn<TodayScreenerRow>[] = [
+  { key: 'ticker', label: 'Ticker' },
+  { key: 'name', label: 'Name' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'market_cap', label: 'Market cap' },
+  { key: 'price', label: 'Price' },
+  { key: 'change_pct', label: 'Change %' },
+  { key: 'volume_today', label: 'Volume today' },
+];
+
+function escapeCsvValue(value: unknown): string {
+  if (value == null) return '';
+  const str = String(value);
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+// Exports RAW values (e.g. market_cap as a plain number, not the
+// "CHF 1.19B" the table displays) rather than mirroring the on-screen
+// formatting - a CSV is meant for further analysis in a spreadsheet,
+// where "1190000000" is usable and "CHF 1.19B" just has to be re-parsed.
+function rowsToCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
+  const header = columns.map((c) => escapeCsvValue(c.label)).join(',');
+  const body = rows.map((row) => columns.map((c) => escapeCsvValue(row[c.key])).join(','));
+  return [header, ...body].join('\r\n');
+}
+
+function downloadCsv(filename: string, csvContent: string): void {
+  // Leading BOM so Excel (which otherwise guesses the wrong encoding for
+  // non-ASCII characters - e.g. accented company names) opens this
+  // correctly instead of mangling them.
+  const bom = String.fromCharCode(0xfeff);
+  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 const cellStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #eee', fontSize: '13px' };
 const headerCellStyle: React.CSSProperties = {
   ...cellStyle,
@@ -93,6 +163,26 @@ function sortRows<T extends object>(rows: T[], sort: SortState): T[] {
 function toggleSort(current: SortState, key: string): SortState {
   if (current.key !== key) return { key, direction: 'asc' };
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+function DownloadCsvButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        marginTop: '8px',
+        padding: '6px 14px',
+        backgroundColor: 'transparent',
+        color: '#0070f3',
+        border: '1px solid #0070f3',
+        borderRadius: '6px',
+        fontSize: '13px',
+        cursor: 'pointer',
+      }}
+    >
+      Download CSV
+    </button>
+  );
 }
 
 function SortableHeader({
@@ -195,6 +285,18 @@ export default function SmallCapsReboundPage() {
     }
   };
 
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+
+  const handleDownloadCrashRebound = () => {
+    const csv = rowsToCsv(sortedCrashRebound, CRASH_REBOUND_CSV_COLUMNS);
+    downloadCsv(`swiss-small-caps-crash-rebound-${todayIso()}.csv`, csv);
+  };
+
+  const handleDownloadTodayScreener = () => {
+    const csv = rowsToCsv(sortedTodayScreener, TODAY_SCREENER_CSV_COLUMNS);
+    downloadCsv(`swiss-small-caps-today-${todayIso()}.csv`, csv);
+  };
+
   return (
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -272,7 +374,9 @@ export default function SmallCapsReboundPage() {
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
         )}
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) > 0 && (
-          <div style={{ overflowX: 'auto' }}>
+          <>
+            <DownloadCsvButton onClick={handleDownloadCrashRebound} />
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
               <thead>
                 <tr>
@@ -311,7 +415,8 @@ export default function SmallCapsReboundPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
 
@@ -326,7 +431,9 @@ export default function SmallCapsReboundPage() {
           <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
         )}
         {status.status === 'done' && (status.today_screener?.length ?? 0) > 0 && (
-          <div style={{ overflowX: 'auto' }}>
+          <>
+            <DownloadCsvButton onClick={handleDownloadTodayScreener} />
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
               <thead>
                 <tr>
@@ -358,7 +465,8 @@ export default function SmallCapsReboundPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </main>
