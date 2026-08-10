@@ -25,8 +25,6 @@ interface CrashReboundRow {
   gain_volume: number | null;
   gain_volume_vs_3mo_avg: number | null;
   gain_pct: number;
-  news_headline: string | null;
-  news_source: string | null;
 }
 
 interface TodayScreenerRow {
@@ -291,8 +289,8 @@ export default function SmallCapsReboundPage() {
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Stocks with a day down 5%+ followed immediately by a day up 5%+. Shows each day&apos;s own volume (raw and
           vs. each stock&apos;s 3-month average - a heavy-volume rebound looks more like real buying than an illiquid
-          bounce), current company data (market cap, trailing/forward P/E, dividend yield, ex-dividend date, beta,
-          52-week range), and any researched news explaining the move.
+          bounce) and current company data (market cap, trailing/forward P/E, dividend yield, ex-dividend date, beta,
+          52-week range).
         </p>
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -333,7 +331,6 @@ export default function SmallCapsReboundPage() {
                     onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
                   />
                   <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="News" sortKey="news_headline" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                 </tr>
               </thead>
               <tbody>
@@ -362,19 +359,6 @@ export default function SmallCapsReboundPage() {
                     <td style={cellStyle}>{formatVolume(row.gain_volume)}</td>
                     <td style={cellStyle}>{formatVolumeRatio(row.gain_volume_vs_3mo_avg)}</td>
                     <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
-                    <td style={{ ...cellStyle, maxWidth: '320px', whiteSpace: 'normal' }}>
-                      {row.news_headline ? (
-                        row.news_source ? (
-                          <a href={row.news_source} target="_blank" rel="noopener noreferrer">
-                            {row.news_headline}
-                          </a>
-                        ) : (
-                          row.news_headline
-                        )
-                      ) : (
-                        <span style={{ color: '#999' }}>Not researched</span>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
