@@ -341,14 +341,14 @@ export default function SmallCapsReboundPage() {
       </section>
 
       <section style={{ marginTop: '32px' }}>
-        <h3 style={{ marginBottom: '4px' }}>All small caps (today)</h3>
+        <h3 style={{ marginBottom: '4px' }}>Big loss (today)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Every scanned small cap&apos;s today numbers - no loss or volume filtering, this is the full universe.
-          Ordered by volume vs. each stock&apos;s own 3-month average (thinnest first) then by move size, purely as a
-          reading aid: a stock near the top is trading unusually thin today, whether it&apos;s up, down, or flat.
+          Stocks down 5%+ today - no volume filtering, so a big loss on thin volume and one on heavy volume both show
+          up. Ordered by volume vs. each stock&apos;s own 3-month average (thinnest first) then by loss size, as a
+          reading aid: a stock near the top moved on unusually little trading.
         </p>
         {status.status === 'done' && (status.today_screener?.length ?? 0) === 0 && (
-          <p style={{ color: '#666', fontSize: '13px' }}>No live quotes available yet today.</p>
+          <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
         )}
         {status.status === 'done' && (status.today_screener?.length ?? 0) > 0 && (
           <div style={{ overflowX: 'auto' }}>
