@@ -9,7 +9,13 @@ import { signOut } from 'next-auth/react';
 // middleware appends automatically. Plain signOut({ callbackUrl: '/login'
 // }) - what both pages used before this - doesn't go through that
 // middleware at all, so it never had anything to preserve.
-export function signOutToLogin(): void {
+//
+// `error` lets a caller (e.g. the idle-logout timer in
+// SessionProvider.tsx) surface a reason on /login without giving up path
+// preservation - both query params can coexist on the same /login URL.
+export function signOutToLogin(options?: { error?: string }): void {
   const returnTo = encodeURIComponent(window.location.pathname);
-  signOut({ callbackUrl: `/login?callbackUrl=${returnTo}` });
+  const query = new URLSearchParams({ callbackUrl: returnTo });
+  if (options?.error) query.set('error', options.error);
+  signOut({ callbackUrl: `/login?${query.toString()}` });
 }
