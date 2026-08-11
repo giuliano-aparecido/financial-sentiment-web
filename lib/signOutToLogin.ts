@@ -13,9 +13,16 @@ import { signOut } from 'next-auth/react';
 // `error` lets a caller (e.g. the idle-logout timer in
 // SessionProvider.tsx) surface a reason on /login without giving up path
 // preservation - both query params can coexist on the same /login URL.
+//
+// URLSearchParams.toString() already percent-encodes each value once -
+// pre-encoding window.location.pathname with encodeURIComponent before
+// handing it to URLSearchParams (as this did until it broke every
+// sign-out in production) double-encodes it, so /login's
+// searchParams.get('callbackUrl') comes back still percent-escaped
+// (e.g. "%2Fresearch%2F...") instead of a real path, which then fails as
+// an invalid URL wherever NextAuth's redirect callback consumes it.
 export function signOutToLogin(options?: { error?: string }): void {
-  const returnTo = encodeURIComponent(window.location.pathname);
-  const query = new URLSearchParams({ callbackUrl: returnTo });
+  const query = new URLSearchParams({ callbackUrl: window.location.pathname });
   if (options?.error) query.set('error', options.error);
   signOut({ callbackUrl: `/login?${query.toString()}` });
 }
