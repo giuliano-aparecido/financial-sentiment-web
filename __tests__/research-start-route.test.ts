@@ -24,6 +24,7 @@ describe('POST /api/research/small-caps/start', () => {
     vi.resetModules();
     process.env.RAG_API_URL = 'https://rag-api.example.com';
     process.env.RAG_API_KEY = 'test-rag-key';
+    process.env.ALLOWED_EMAILS_RESEARCH = AUTHED_SESSION.user.email;
     vi.mocked(getServerSession).mockResolvedValue(AUTHED_SESSION as never);
     vi.mocked(checkRateLimit).mockReturnValue(true);
   });
@@ -46,6 +47,13 @@ describe('POST /api/research/small-caps/start', () => {
     const { POST } = await import('../app/api/research/small-caps/start/route');
     const response = await POST();
     expect(response.status).toBe(401);
+  });
+
+  it('returns 404 when the session email is not the research-allowed one', async () => {
+    process.env.ALLOWED_EMAILS_RESEARCH = 'someone-else@example.com';
+    const { POST } = await import('../app/api/research/small-caps/start/route');
+    const response = await POST();
+    expect(response.status).toBe(404);
   });
 
   it('returns 429 when the rate limit is exceeded', async () => {
