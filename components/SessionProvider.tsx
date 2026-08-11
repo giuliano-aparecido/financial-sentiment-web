@@ -1,7 +1,8 @@
 'use client';
 
-import { SessionProvider as NextAuthSessionProvider, signOut, useSession } from 'next-auth/react';
+import { SessionProvider as NextAuthSessionProvider, useSession } from 'next-auth/react';
 import { ReactNode, useEffect, useRef } from 'react';
+import { signOutToLogin } from '@/lib/signOutToLogin';
 
 // No activity for this long signs the user out. 15 minutes is generous
 // enough not to interrupt someone reading a long analysis, but short enough
@@ -19,7 +20,12 @@ function IdleLogoutWatcher() {
 
     const doSignOut = () => {
       localStorage.removeItem(STORAGE_KEY);
-      signOut({ callbackUrl: '/login?error=SessionExpired' });
+      // Goes through signOutToLogin (not a plain signOut call) so the page
+      // the user was idled out on is preserved as /login's callbackUrl,
+      // same as the manual "Sign out" button - otherwise re-signing in
+      // always landed on '/' instead of back on e.g.
+      // /research/small-caps-rebound.
+      signOutToLogin({ error: 'SessionExpired' });
     };
 
     // A plain in-memory setTimeout resets to a fresh IDLE_TIMEOUT_MS on
