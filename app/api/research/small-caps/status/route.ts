@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { isResearchAllowed } from '@/lib/researchAccess';
 
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,12 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // /research is restricted to one owner email, separately from the
+  // general ALLOWED_EMAILS allowlist that let this session sign in at all
+  // - see lib/researchAccess.ts and proxy.ts's own copy of this check.
+  if (!isResearchAllowed(session.user.email)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   if (!checkRateLimit(`research-status:${session.user.email}`, RESEARCH_STATUS_WINDOW_MS, RESEARCH_STATUS_MAX_REQUESTS)) {

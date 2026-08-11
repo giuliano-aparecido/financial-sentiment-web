@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { isResearchAllowed } from '@/lib/researchAccess';
 
 // The backend scan itself takes 1-3 minutes, but this route only has to
 // wait for the backend's own POST /start to return, which is immediate
@@ -39,6 +40,12 @@ export async function POST() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // /research is restricted to one owner email, separately from the
+  // general ALLOWED_EMAILS allowlist that let this session sign in at all
+  // - see lib/researchAccess.ts and proxy.ts's own copy of this check.
+  if (!isResearchAllowed(session.user.email)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   // "research:"-prefixed key so this budget is independent of
