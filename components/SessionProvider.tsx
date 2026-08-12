@@ -10,6 +10,10 @@ import { signOutToLogin } from '@/lib/signOutToLogin';
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const;
 const STORAGE_KEY = 'idleLogout:lastActivityAt';
+// Tracks which session's `expires` value STORAGE_KEY's timestamp was
+// recorded for - see scheduleFromLastActivity's own comment for why this
+// exists.
+const SESSION_MARKER_KEY = 'idleLogout:sessionExpires';
 
 function IdleLogoutWatcher() {
   const { data: session } = useSession();
@@ -20,6 +24,7 @@ function IdleLogoutWatcher() {
 
     const doSignOut = () => {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SESSION_MARKER_KEY);
       // Goes through signOutToLogin (not a plain signOut call) so the page
       // the user was idled out on is preserved as /login's callbackUrl,
       // same as the manual "Sign out" button - otherwise re-signing in
@@ -38,8 +43,30 @@ function IdleLogoutWatcher() {
     // timer to have fired on schedule) closes that gap.
     const scheduleFromLastActivity = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      const stored = Number(localStorage.getItem(STORAGE_KEY));
-      const lastActivityAt = stored || Date.now();
+
+      // A stored timestamp only means anything if it was recorded for THIS
+      // session. session.expires changes on every fresh sign-in (a brand
+      // new JWT) - a mismatch here means whatever's in localStorage was
+      // left behind by a previous session that ended WITHOUT going through
+      // doSignOut (browser/tab closed outright, laptop slept through the
+      // idle window, the 1-hour session cookie ceiling elapsing with no JS
+      // running to notice - see lib/auth.ts's maxAge), not a stale-but-
+      // still-relevant reading. Confirmed live: trusting it unconditionally
+      // signed freshly-authenticated users straight back out, immediately,
+      // every time - a leftover timestamp from hours/days ago always read
+      // as "already past the 15-minute limit." Any marker mismatch is
+      // therefore always treated as fresh activity, never as staleness.
+      const storedMarker = localStorage.getItem(SESSION_MARKER_KEY);
+      let lastActivityAt: number;
+      if (storedMarker !== session.expires) {
+        lastActivityAt = Date.now();
+        localStorage.setItem(STORAGE_KEY, String(lastActivityAt));
+        localStorage.setItem(SESSION_MARKER_KEY, session.expires);
+      } else {
+        const stored = Number(localStorage.getItem(STORAGE_KEY));
+        lastActivityAt = stored || Date.now();
+      }
+
       const remaining = IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
       if (remaining <= 0) {
         doSignOut();
@@ -50,12 +77,10 @@ function IdleLogoutWatcher() {
 
     const recordActivity = () => {
       localStorage.setItem(STORAGE_KEY, String(Date.now()));
+      localStorage.setItem(SESSION_MARKER_KEY, session.expires);
       scheduleFromLastActivity();
     };
 
-    if (!localStorage.getItem(STORAGE_KEY)) {
-      localStorage.setItem(STORAGE_KEY, String(Date.now()));
-    }
     scheduleFromLastActivity();
 
     // setTimeout is throttled or fully suspended in backgrounded mobile
