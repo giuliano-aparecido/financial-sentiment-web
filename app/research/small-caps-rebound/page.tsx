@@ -322,7 +322,7 @@ export default function SmallCapsReboundPage() {
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
-  const universeLabel = status.all_caps ? 'all-caps' : 'small-caps';
+  const universeLabel = status.all_caps ? 'volatility-ex-smi' : 'small-caps';
 
   const handleDownloadCrashRebound = () => {
     const csv = rowsToCsv(sortedCrashRebound, CRASH_REBOUND_CSV_COLUMNS);
@@ -338,10 +338,13 @@ export default function SmallCapsReboundPage() {
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2>🇨🇭 Swiss {status.all_caps ? 'All-Cap' : 'Small-Cap'} Research</h2>
+          <h2>🇨🇭 Swiss {status.all_caps ? 'Volatility' : 'Small-Cap'} Research</h2>
           <p style={{ color: '#666' }}>
-            SIX Swiss Exchange {status.all_caps ? '(all market caps)' : 'small caps'}, domestic only. For research,
-            not investment advice.
+            {status.all_caps
+              ? "SIX Swiss Exchange, domestic only, small/mid/large caps included - the SMI's 20 largest, " +
+                'most liquid names are excluded on purpose (looking for volatile movers, not blue chips). ' +
+                'For research, not investment advice.'
+              : 'SIX Swiss Exchange small caps, domestic only. For research, not investment advice.'}
           </p>
         </div>
         {session?.user?.email && (
@@ -389,12 +392,12 @@ export default function SmallCapsReboundPage() {
             disabled={isRunning}
             onChange={(e) => setAllCaps(e.target.checked)}
           />
-          All market caps (not just small caps)
+          Include mid/large caps too (excludes SMI mega-caps)
         </label>
         {status.status === 'done' && status.finished_at && (
           <span style={{ color: '#666', fontSize: '13px' }}>
-            Last run ({status.all_caps ? 'all caps' : 'small caps'}): {new Date(status.finished_at).toLocaleString()} ·{' '}
-            {status.universe_size} tickers scanned
+            Last run ({status.all_caps ? 'small/mid/large, ex-SMI' : 'small caps'}):{' '}
+            {new Date(status.finished_at).toLocaleString()} · {status.universe_size} tickers scanned
           </span>
         )}
         {status.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
