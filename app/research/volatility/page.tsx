@@ -194,11 +194,13 @@ function SortableHeader({
   sortKey,
   sort,
   onSort,
+  title,
 }: {
   label: string;
   sortKey: string;
   sort: SortState;
   onSort: (key: string) => void;
+  title?: string;
 }) {
   const active = sort.key === sortKey;
   return (
@@ -206,6 +208,7 @@ function SortableHeader({
       style={{ ...headerCellStyle, cursor: 'pointer', userSelect: 'none' }}
       onClick={() => onSort(sortKey)}
       aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      title={title}
     >
       {label}
       <span style={{ color: active ? '#0070f3' : '#ccc', marginLeft: '4px' }}>
@@ -447,7 +450,13 @@ export default function VolatilityResearchPage() {
                   <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain volume" sortKey="gain_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain %" sortKey="gain_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader
+                    label="Gain %"
+                    sortKey="gain_pct"
+                    sort={crashSort}
+                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
+                    title="Cumulative gain from the crash-day close to the close on the rebound day (see Days to rebound) - not that day's own daily move."
+                  />
                 </tr>
               </thead>
               <tbody>
