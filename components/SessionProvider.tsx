@@ -29,7 +29,7 @@ function IdleLogoutWatcher() {
       // the user was idled out on is preserved as /login's callbackUrl,
       // same as the manual "Sign out" button - otherwise re-signing in
       // always landed on '/' instead of back on e.g.
-      // /research/small-caps-rebound.
+      // /research/volatility.
       signOutToLogin({ error: 'SessionExpired' });
     };
 

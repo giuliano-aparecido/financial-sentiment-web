@@ -41,19 +41,19 @@ describe('proxy', () => {
 
   it('lets the research owner through /research/*', async () => {
     await import('../proxy');
-    const result = capturedMiddleware!(reqWithEmail('/research/small-caps-rebound', OWNER_EMAIL));
+    const result = capturedMiddleware!(reqWithEmail('/research/volatility', OWNER_EMAIL));
     expect(result).toBeUndefined();
   });
 
   it('404s a logged-in non-owner on /research/*', async () => {
     await import('../proxy');
-    const result = capturedMiddleware!(reqWithEmail('/research/small-caps-rebound', 'other@example.com')) as Response;
+    const result = capturedMiddleware!(reqWithEmail('/research/volatility', 'other@example.com')) as Response;
     expect(result.status).toBe(404);
   });
 
   it('404s a logged-in non-owner on /api/research/*', async () => {
     await import('../proxy');
-    const result = capturedMiddleware!(reqWithEmail('/api/research/small-caps/status', 'other@example.com')) as Response;
+    const result = capturedMiddleware!(reqWithEmail('/api/research/volatility/status', 'other@example.com')) as Response;
     expect(result.status).toBe(404);
   });
 
