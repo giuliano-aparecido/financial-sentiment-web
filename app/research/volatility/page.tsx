@@ -13,6 +13,7 @@ interface CrashReboundRow {
   loss_close: number;
   loss_volume: number | null;
   drop_pct: number;
+  days_to_rebound: number;
   gain_date: string;
   gain_close: number;
   gain_volume: number | null;
@@ -79,6 +80,7 @@ const CRASH_REBOUND_CSV_COLUMNS: CsvColumn<CrashReboundRow>[] = [
   { key: 'loss_close', label: 'Loss close' },
   { key: 'loss_volume', label: 'Loss volume' },
   { key: 'drop_pct', label: 'Drop %' },
+  { key: 'days_to_rebound', label: 'Days to rebound' },
   { key: 'gain_date', label: 'Gain date' },
   { key: 'gain_close', label: 'Gain close' },
   { key: 'gain_volume', label: 'Gain volume' },
@@ -419,8 +421,9 @@ export default function VolatilityResearchPage() {
       <section style={{ marginTop: '28px' }}>
         <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 3 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Down 5%+ then up 5%+ next day. Cached once per day - Refresh gets a new day&apos;s data, not a re-scan of
-          today&apos;s already-cached result.
+          Down 5%+, then within the next 3 trading days a close 5%+ above THAT crash-day close (not just vs. the
+          previous day - still-falling days don&apos;t quietly count as progress). Cached once per day - Refresh
+          gets a new day&apos;s data, not a re-scan of today&apos;s already-cached result.
         </p>
         {status.status === 'done' && (status.crash_rebound?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -440,6 +443,7 @@ export default function VolatilityResearchPage() {
                   <SortableHeader label="Loss close" sortKey="loss_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Loss volume" sortKey="loss_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Drop %" sortKey="drop_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader label="Days to rebound" sortKey="days_to_rebound" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain volume" sortKey="gain_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
@@ -459,6 +463,7 @@ export default function VolatilityResearchPage() {
                     <td style={cellStyle}>CHF {row.loss_close.toFixed(2)}</td>
                     <td style={cellStyle}>{formatVolume(row.loss_volume)}</td>
                     <td style={{ ...cellStyle, color: '#dc2626' }}>{row.drop_pct.toFixed(2)}%</td>
+                    <td style={cellStyle}>{row.days_to_rebound}</td>
                     <td style={cellStyle}>{row.gain_date}</td>
                     <td style={cellStyle}>CHF {row.gain_close.toFixed(2)}</td>
                     <td style={cellStyle}>{formatVolume(row.gain_volume)}</td>
