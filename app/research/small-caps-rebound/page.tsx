@@ -343,8 +343,10 @@ export default function SmallCapsReboundPage() {
             {status.all_caps
               ? "SIX Swiss Exchange, domestic only, small/mid/large caps included - the SMI's 20 largest, " +
                 'most liquid names are excluded on purpose (looking for volatile movers, not blue chips). ' +
-                'For research, not investment advice.'
-              : 'SIX Swiss Exchange small caps, domestic only. For research, not investment advice.'}
+                'At least 50,000 shares traded today - thinly-traded names excluded. For research, not ' +
+                'investment advice.'
+              : 'SIX Swiss Exchange small caps, domestic only, at least 50,000 shares traded today - ' +
+                'thinly-traded names excluded. For research, not investment advice.'}
           </p>
         </div>
         {session?.user?.email && (
