@@ -343,7 +343,7 @@ export default function VolatilityResearchPage() {
           <h2>🇨🇭 Swiss Volatility Research</h2>
           <p style={{ color: '#666' }}>
             SIX Swiss Exchange, domestic only, looking for volatile movers (crash-then-rebound and big daily
-            losses) - not blue chips: the SMI&apos;s 20 largest, most liquid names are always excluded.{' '}
+            losses) - not blue chips: the SMI&apos;s 20 largest-by-market-cap names are always excluded.{' '}
             {status.all_caps
               ? 'Universe: small/mid/large caps.'
               : 'Universe: small caps only.'}{' '}
