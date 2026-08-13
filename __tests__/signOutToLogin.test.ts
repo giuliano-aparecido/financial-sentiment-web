@@ -26,7 +26,7 @@ describe('signOutToLogin', () => {
   beforeEach(() => {
     signOutMock.mockClear();
     // @ts-expect-error - minimal stub, only .location.pathname is used
-    globalThis.window = { location: { pathname: '/research/small-caps-rebound' } };
+    globalThis.window = { location: { pathname: '/research/volatility' } };
   });
 
   afterEach(() => {
@@ -36,7 +36,7 @@ describe('signOutToLogin', () => {
   it('round-trips a nested path through the login URL intact', () => {
     signOutToLogin();
     const { callbackUrl } = signOutMock.mock.calls[0][0] as { callbackUrl: string };
-    expect(extractCallbackUrl(callbackUrl)).toBe('/research/small-caps-rebound');
+    expect(extractCallbackUrl(callbackUrl)).toBe('/research/volatility');
   });
 
   it('carries an error param alongside the callbackUrl', () => {
@@ -44,6 +44,6 @@ describe('signOutToLogin', () => {
     const { callbackUrl } = signOutMock.mock.calls[0][0] as { callbackUrl: string };
     const url = new URL(callbackUrl, 'https://example.com');
     expect(url.searchParams.get('error')).toBe('SessionExpired');
-    expect(extractCallbackUrl(callbackUrl)).toBe('/research/small-caps-rebound');
+    expect(extractCallbackUrl(callbackUrl)).toBe('/research/volatility');
   });
 });

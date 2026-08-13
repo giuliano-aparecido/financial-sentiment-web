@@ -38,7 +38,7 @@ export async function GET() {
   }
 
   try {
-    const upstream = await fetch(`${RAG_API_URL}/api/research/small-caps/status`, {
+    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/status`, {
       method: 'GET',
       headers: { 'X-API-Key': RAG_API_KEY },
       signal: AbortSignal.timeout(10_000),

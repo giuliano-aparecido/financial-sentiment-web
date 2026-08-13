@@ -43,7 +43,7 @@ interface ScanStatus {
 
 // Polling this often keeps the wait feeling responsive without coming
 // close to the status route's own 30-per-60s budget (see
-// app/api/research/small-caps/status/route.ts) - a 1-3 minute scan polled
+// app/api/research/volatility/status/route.ts) - a 1-3 minute scan polled
 // every 5s is at most ~36 requests total, spread out, not bursty.
 const POLL_INTERVAL_MS = 5000;
 
@@ -213,7 +213,7 @@ function SortableHeader({
   );
 }
 
-export default function SmallCapsReboundPage() {
+export default function VolatilityResearchPage() {
   const { data: session } = useSession();
   const [status, setStatus] = useState<ScanStatus>({ status: 'idle' });
   const [error, setError] = useState('');
@@ -252,7 +252,7 @@ export default function SmallCapsReboundPage() {
   // can see the result, not just have it silently applied to state.
   const pollStatus = async (): Promise<ScanStatus | null> => {
     try {
-      const response = await fetch('/api/research/small-caps/status');
+      const response = await fetch('/api/research/volatility/status');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setError(data?.error || `Server returned status ${response.status}`);
@@ -275,7 +275,7 @@ export default function SmallCapsReboundPage() {
   const handleRefresh = async () => {
     setError('');
     try {
-      const response = await fetch(`/api/research/small-caps/start?all_caps=${allCaps}`, { method: 'POST' });
+      const response = await fetch(`/api/research/volatility/start?all_caps=${allCaps}`, { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setError(data?.error || `Server returned status ${response.status}`);
@@ -338,15 +338,15 @@ export default function SmallCapsReboundPage() {
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2>🇨🇭 Swiss {status.all_caps ? 'Volatility' : 'Small-Cap'} Research</h2>
+          <h2>🇨🇭 Swiss Volatility Research</h2>
           <p style={{ color: '#666' }}>
+            SIX Swiss Exchange, domestic only, looking for volatile movers (crash-then-rebound and big daily
+            losses) - not blue chips: the SMI&apos;s 20 largest, most liquid names are always excluded.{' '}
             {status.all_caps
-              ? "SIX Swiss Exchange, domestic only, small/mid/large caps included - the SMI's 20 largest, " +
-                'most liquid names are excluded on purpose (looking for volatile movers, not blue chips). ' +
-                'At least 50,000 shares traded today - thinly-traded names excluded. For research, not ' +
-                'investment advice.'
-              : 'SIX Swiss Exchange small caps, domestic only, at least 50,000 shares traded today - ' +
-                'thinly-traded names excluded. For research, not investment advice.'}
+              ? 'Universe: small/mid/large caps.'
+              : 'Universe: small caps only.'}{' '}
+            At least 50,000 shares traded today - thinly-traded names excluded. For research, not investment
+            advice.
           </p>
         </div>
         {session?.user?.email && (

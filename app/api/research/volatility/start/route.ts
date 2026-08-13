@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const upstream = await fetch(`${RAG_API_URL}/api/research/small-caps/start?all_caps=${allCaps}`, {
+    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/start?all_caps=${allCaps}`, {
       method: 'POST',
       headers: { 'X-API-Key': RAG_API_KEY },
       signal: AbortSignal.timeout(10_000),

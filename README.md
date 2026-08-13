@@ -23,18 +23,17 @@ doing it properly, not because it needs to scale or handle real traffic.
 ```
 app/
   page.tsx                    The main page: query box, results
-  research/small-caps-rebound/page.tsx   Swiss small-cap research page -
-                                Refresh button, two result tables (see
-                                below)
+  research/volatility/page.tsx  Swiss volatility research page - Refresh
+                                button, two result tables (see below)
   login/page.tsx               Sign-in page (Google OAuth in production)
   api/analyze/route.ts          Server-side proxy to the RAG API - the
                                 only place RAG_API_KEY is ever read, so
                                 it never reaches the browser bundle
-  api/research/small-caps/start/route.ts    Kicks off the small-cap scan
+  api/research/volatility/start/route.ts    Kicks off the volatility scan
                                 (proxies to the RAG API's background-job
                                 endpoint - see financial-sentiment-api's
                                 app/services/research_job.py)
-  api/research/small-caps/status/route.ts   Polled by the page while a
+  api/research/volatility/status/route.ts   Polled by the page while a
                                 scan runs
   api/auth/[...nextauth]/route.ts   NextAuth handler
 components/SessionProvider.tsx  NextAuth session context + idle-logout
@@ -50,7 +49,7 @@ proxy.ts                        Page-level route protection (was
                                 renamed the convention)
 ```
 
-**Swiss small-cap research page** (`/research/small-caps-rebound`): runs
+**Swiss volatility research page** (`/research/volatility`): runs
 two Python scans on the RAG API backend (which already runs yfinance in
 production - this Next.js app is deployed on Vercel serverless functions,
 which can't run a 1-3 minute, ~150+ network-call Python script at all, no
