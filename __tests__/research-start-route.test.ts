@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
+
+function makeRequest(url = 'http://localhost/api/research/small-caps/start'): NextRequest {
+  return new NextRequest(url, { method: 'POST' });
+}
 
 vi.mock('next-auth', () => ({
   getServerSession: vi.fn(),
@@ -38,35 +43,35 @@ describe('POST /api/research/small-caps/start', () => {
   it('returns 500 when RAG_API_URL/RAG_API_KEY are not configured', async () => {
     delete process.env.RAG_API_URL;
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(500);
   });
 
   it('returns 401 when there is no session', async () => {
     vi.mocked(getServerSession).mockResolvedValue(null);
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(401);
   });
 
   it('returns 404 when the session email is not the research-allowed one', async () => {
     process.env.ALLOWED_EMAILS_RESEARCH = 'someone-else@example.com';
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(404);
   });
 
   it('returns 429 when the rate limit is exceeded', async () => {
     vi.mocked(checkRateLimit).mockReturnValue(false);
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(429);
   });
 
   it('rate-limits with a research-prefixed key, not the shared /api/analyze bucket', async () => {
     const { POST } = await import('../app/api/research/small-caps/start/route');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'running' }), { status: 200 })));
-    await POST();
+    await POST(makeRequest());
     expect(checkRateLimit).toHaveBeenCalledWith(
       `research:${AUTHED_SESSION.user.email}`,
       expect.any(Number),
@@ -80,7 +85,7 @@ describe('POST /api/research/small-caps/start', () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'busy' }), { status: 503 })),
     );
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(503);
     const data = await response.json();
     expect(data.error).toBe('busy');
@@ -92,7 +97,7 @@ describe('POST /api/research/small-caps/start', () => {
       vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { name: 'TimeoutError' })),
     );
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(504);
   });
 
@@ -102,9 +107,31 @@ describe('POST /api/research/small-caps/start', () => {
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'running', started_at: 'now' }), { status: 200 })),
     );
     const { POST } = await import('../app/api/research/small-caps/start/route');
-    const response = await POST();
+    const response = await POST(makeRequest());
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.status).toBe('running');
+  });
+
+  it('forwards all_caps=true to the upstream request when present', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'running' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/research/small-caps/start/route');
+    await POST(makeRequest('http://localhost/api/research/small-caps/start?all_caps=true'));
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('all_caps=true'),
+      expect.anything(),
+    );
+  });
+
+  it('defaults to all_caps=false when the query param is absent', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'running' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/research/small-caps/start/route');
+    await POST(makeRequest());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('all_caps=false'),
+      expect.anything(),
+    );
   });
 });

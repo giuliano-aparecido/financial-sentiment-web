@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -28,10 +28,17 @@ const RAG_API_KEY = process.env.RAG_API_KEY;
 const RESEARCH_START_WINDOW_MS = 5 * 60_000;
 const RESEARCH_START_MAX_REQUESTS = 1;
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   if (!RAG_API_URL || !RAG_API_KEY) {
     return NextResponse.json({ error: 'Server is not configured.' }, { status: 500 });
   }
+
+  // Passed through as-is (default 'false' when absent) to the backend's
+  // own ?all_caps= query param - see financial-sentiment-api's
+  // app/routers/research.py. Read here rather than trusted from the
+  // client body so a malformed/missing value just falls back to the safe
+  // default instead of erroring.
+  const allCaps = request.nextUrl.searchParams.get('all_caps') === 'true';
 
   // The proxy matcher is what actually gates this route today, but that's
   // one regex edit away from silently exposing an endpoint that can
@@ -59,7 +66,7 @@ export async function POST() {
   }
 
   try {
-    const upstream = await fetch(`${RAG_API_URL}/api/research/small-caps/start`, {
+    const upstream = await fetch(`${RAG_API_URL}/api/research/small-caps/start?all_caps=${allCaps}`, {
       method: 'POST',
       headers: { 'X-API-Key': RAG_API_KEY },
       signal: AbortSignal.timeout(10_000),

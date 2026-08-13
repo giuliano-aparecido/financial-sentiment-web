@@ -34,6 +34,7 @@ interface ScanStatus {
   status: 'idle' | 'running' | 'done' | 'error';
   started_at?: string;
   finished_at?: string;
+  all_caps?: boolean;
   universe_size?: number;
   crash_rebound?: CrashReboundRow[];
   today_screener?: TodayScreenerRow[];
@@ -216,6 +217,10 @@ export default function SmallCapsReboundPage() {
   const { data: session } = useSession();
   const [status, setStatus] = useState<ScanStatus>({ status: 'idle' });
   const [error, setError] = useState('');
+  // Drives the NEXT scan triggered via Refresh - not necessarily what the
+  // currently-displayed results reflect (see status.all_caps for that,
+  // which is what the LAST completed/running scan actually used).
+  const [allCaps, setAllCaps] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Default to null (backend order: loss_date desc / volume ratio asc -
@@ -270,7 +275,7 @@ export default function SmallCapsReboundPage() {
   const handleRefresh = async () => {
     setError('');
     try {
-      const response = await fetch('/api/research/small-caps/start', { method: 'POST' });
+      const response = await fetch(`/api/research/small-caps/start?all_caps=${allCaps}`, { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setError(data?.error || `Server returned status ${response.status}`);
@@ -317,23 +322,31 @@ export default function SmallCapsReboundPage() {
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
+  const universeLabel = status.all_caps ? 'volatility-ex-smi' : 'small-caps';
+
   const handleDownloadCrashRebound = () => {
     const csv = rowsToCsv(sortedCrashRebound, CRASH_REBOUND_CSV_COLUMNS);
-    downloadCsv(`swiss-small-caps-crash-rebound-${todayIso()}.csv`, csv);
+    downloadCsv(`swiss-${universeLabel}-crash-rebound-${todayIso()}.csv`, csv);
   };
 
   const handleDownloadTodayScreener = () => {
     const csv = rowsToCsv(sortedTodayScreener, TODAY_SCREENER_CSV_COLUMNS);
-    downloadCsv(`swiss-small-caps-today-${todayIso()}.csv`, csv);
+    downloadCsv(`swiss-${universeLabel}-today-${todayIso()}.csv`, csv);
   };
 
   return (
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2>🇨🇭 Swiss Small-Cap Research</h2>
+          <h2>🇨🇭 Swiss {status.all_caps ? 'Volatility' : 'Small-Cap'} Research</h2>
           <p style={{ color: '#666' }}>
-            SIX Swiss Exchange small caps, domestic only. For research, not investment advice.
+            {status.all_caps
+              ? "SIX Swiss Exchange, domestic only, small/mid/large caps included - the SMI's 20 largest, " +
+                'most liquid names are excluded on purpose (looking for volatile movers, not blue chips). ' +
+                'At least 50,000 shares traded today - thinly-traded names excluded. For research, not ' +
+                'investment advice.'
+              : 'SIX Swiss Exchange small caps, domestic only, at least 50,000 shares traded today - ' +
+                'thinly-traded names excluded. For research, not investment advice.'}
           </p>
         </div>
         {session?.user?.email && (
@@ -374,9 +387,19 @@ export default function SmallCapsReboundPage() {
         >
           {isRunning ? 'Scanning… (1-3 min)' : 'Refresh'}
         </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666', cursor: isRunning ? 'not-allowed' : 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={allCaps}
+            disabled={isRunning}
+            onChange={(e) => setAllCaps(e.target.checked)}
+          />
+          Include mid/large caps too (excludes SMI mega-caps)
+        </label>
         {status.status === 'done' && status.finished_at && (
           <span style={{ color: '#666', fontSize: '13px' }}>
-            Last run: {new Date(status.finished_at).toLocaleString()} · {status.universe_size} tickers scanned
+            Last run ({status.all_caps ? 'small/mid/large, ex-SMI' : 'small caps'}):{' '}
+            {new Date(status.finished_at).toLocaleString()} · {status.universe_size} tickers scanned
           </span>
         )}
         {status.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
