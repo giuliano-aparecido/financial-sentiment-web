@@ -11,12 +11,21 @@ interface CrashReboundRow {
   market_cap: number | null;
   avg_volume_10d: number | null;
   loss_date: string;
-  loss_close: number;
-  drop_pct: number;
+  // Nullable, not just typed as such for form's sake: confirmed live in
+  // production - a recently-listed company's own trading history can
+  // start INSIDE the lookback window, giving its first day a NaN %
+  // change (serialized as JSON null - see financial-sentiment-api's
+  // research_job.py's _json_safe_records) that crashed this page's
+  // raw row.drop_pct.toFixed(2) call. Backend now excludes that row
+  // entirely (see swiss_crash_rebound.py), but these stay nullable here
+  // too - never assume an external API's numeric field can't be null at
+  // runtime just because a fix landed once.
+  loss_close: number | null;
+  drop_pct: number | null;
   days_to_rebound: number;
   gain_date: string;
-  gain_close: number;
-  gain_pct: number;
+  gain_close: number | null;
+  gain_pct: number | null;
 }
 
 interface TodayScreenerRow {
@@ -76,6 +85,16 @@ function formatMarketCap(value: number | null): string {
 
 function formatVolume(value: number | null): string {
   return value == null ? 'N/A' : value.toLocaleString();
+}
+
+function formatPrice(value: number | null): string {
+  return value == null ? 'N/A' : `CHF ${value.toFixed(2)}`;
+}
+
+function formatPct(value: number | null, signed = false): string {
+  if (value == null) return 'N/A';
+  const sign = signed && value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
 }
 
 interface CsvColumn<T> {
@@ -573,12 +592,12 @@ export default function VolatilityResearchPage() {
                     <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
                     <td style={cellStyle}>{formatVolume(row.avg_volume_10d)}</td>
                     <td style={cellStyle}>{row.loss_date}</td>
-                    <td style={cellStyle}>CHF {row.loss_close.toFixed(2)}</td>
-                    <td style={{ ...cellStyle, color: '#dc2626' }}>{row.drop_pct.toFixed(2)}%</td>
+                    <td style={cellStyle}>{formatPrice(row.loss_close)}</td>
+                    <td style={{ ...cellStyle, color: '#dc2626' }}>{formatPct(row.drop_pct)}</td>
                     <td style={cellStyle}>{row.days_to_rebound}</td>
                     <td style={cellStyle}>{row.gain_date}</td>
-                    <td style={cellStyle}>CHF {row.gain_close.toFixed(2)}</td>
-                    <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
+                    <td style={cellStyle}>{formatPrice(row.gain_close)}</td>
+                    <td style={{ ...cellStyle, color: '#16a34a' }}>{formatPct(row.gain_pct, true)}</td>
                   </tr>
                 ))}
               </tbody>
