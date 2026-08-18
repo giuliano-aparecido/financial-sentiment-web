@@ -9,14 +9,13 @@ interface CrashReboundRow {
   name: string;
   sector: string | null;
   market_cap: number | null;
+  avg_volume_10d: number | null;
   loss_date: string;
   loss_close: number;
-  loss_volume: number | null;
   drop_pct: number;
   days_to_rebound: number;
   gain_date: string;
   gain_close: number;
-  gain_volume: number | null;
   gain_pct: number;
 }
 
@@ -31,6 +30,16 @@ interface TodayScreenerRow {
   avg_volume_10d: number | null;
 }
 
+interface VolatilityIndicatorRow {
+  ticker: string;
+  name: string;
+  sector: string | null;
+  market_cap: number | null;
+  loss_days: number;
+  gain_days: number;
+  total_days: number;
+}
+
 interface ScanStatus {
   status: 'idle' | 'running' | 'done' | 'error';
   started_at?: string;
@@ -40,6 +49,18 @@ interface ScanStatus {
   today_screener?: TodayScreenerRow[];
   error?: string;
 }
+
+interface IndicatorScanStatus {
+  status: 'idle' | 'running' | 'done' | 'error';
+  started_at?: string;
+  finished_at?: string;
+  threshold_pct?: number;
+  universe_size?: number;
+  volatility_indicator?: VolatilityIndicatorRow[];
+  error?: string;
+}
+
+const THRESHOLD_OPTIONS = [2, 3, 5] as const;
 
 // Polling this often keeps the wait feeling responsive without coming
 // close to the status route's own 30-per-60s budget (see
@@ -75,14 +96,13 @@ const CRASH_REBOUND_CSV_COLUMNS: CsvColumn<CrashReboundRow>[] = [
   { key: 'name', label: 'Name' },
   { key: 'sector', label: 'Sector' },
   { key: 'market_cap', label: 'Market cap' },
+  { key: 'avg_volume_10d', label: 'ADTV (10d)' },
   { key: 'loss_date', label: 'Loss date' },
   { key: 'loss_close', label: 'Loss close' },
-  { key: 'loss_volume', label: 'Loss volume' },
   { key: 'drop_pct', label: 'Drop %' },
   { key: 'days_to_rebound', label: 'Days to rebound' },
   { key: 'gain_date', label: 'Gain date' },
   { key: 'gain_close', label: 'Gain close' },
-  { key: 'gain_volume', label: 'Gain volume' },
   { key: 'gain_pct', label: 'Gain %' },
 ];
 
@@ -94,6 +114,16 @@ const TODAY_SCREENER_CSV_COLUMNS: CsvColumn<TodayScreenerRow>[] = [
   { key: 'price', label: 'Price' },
   { key: 'change_pct', label: 'Change %' },
   { key: 'volume_today', label: 'Volume today' },
+];
+
+const VOLATILITY_INDICATOR_CSV_COLUMNS: CsvColumn<VolatilityIndicatorRow>[] = [
+  { key: 'ticker', label: 'Ticker' },
+  { key: 'name', label: 'Name' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'market_cap', label: 'Market cap' },
+  { key: 'loss_days', label: 'Loss days' },
+  { key: 'gain_days', label: 'Gain days' },
+  { key: 'total_days', label: 'Total days' },
 ];
 
 function escapeCsvValue(value: unknown): string {
@@ -223,10 +253,21 @@ export default function VolatilityResearchPage() {
   const [error, setError] = useState('');
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Entirely separate state from the main scan above - own status object,
+  // own error, own poll timer, own threshold selection - since this
+  // table has its own independent backend job (see research_job.py's
+  // module docstring) and must not block on or get blocked by the main
+  // scan's own state.
+  const [indicatorStatus, setIndicatorStatus] = useState<IndicatorScanStatus>({ status: 'idle' });
+  const [indicatorError, setIndicatorError] = useState('');
+  const [indicatorThreshold, setIndicatorThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
+  const indicatorPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Default to null (backend order: loss_date desc / volume ratio asc -
   // see research_job.py's callers) until the user clicks a header.
   const [crashSort, setCrashSort] = useState<SortState>({ key: null, direction: 'asc' });
   const [todaySort, setTodaySort] = useState<SortState>({ key: null, direction: 'asc' });
+  const [indicatorSort, setIndicatorSort] = useState<SortState>({ key: null, direction: 'asc' });
 
   const sortedCrashRebound = useMemo(
     () => sortRows(status.crash_rebound ?? [], crashSort),
@@ -236,8 +277,13 @@ export default function VolatilityResearchPage() {
     () => sortRows(status.today_screener ?? [], todaySort),
     [status.today_screener, todaySort],
   );
+  const sortedVolatilityIndicator = useMemo(
+    () => sortRows(indicatorStatus.volatility_indicator ?? [], indicatorSort),
+    [indicatorStatus.volatility_indicator, indicatorSort],
+  );
 
   const isRunning = status.status === 'running';
+  const isIndicatorRunning = indicatorStatus.status === 'running';
 
   const stopPolling = () => {
     if (pollTimer.current) {
@@ -289,6 +335,60 @@ export default function VolatilityResearchPage() {
     }
   };
 
+  const stopIndicatorPolling = () => {
+    if (indicatorPollTimer.current) {
+      clearTimeout(indicatorPollTimer.current);
+      indicatorPollTimer.current = null;
+    }
+  };
+
+  const pollIndicatorStatus = async (): Promise<void> => {
+    try {
+      const response = await fetch('/api/research/volatility/indicator/status');
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setIndicatorError(data?.error || `Server returned status ${response.status}`);
+        stopIndicatorPolling();
+        return;
+      }
+      const parsed = data as IndicatorScanStatus;
+      setIndicatorStatus(parsed);
+      if (parsed.status === 'running') {
+        indicatorPollTimer.current = setTimeout(pollIndicatorStatus, POLL_INTERVAL_MS);
+      }
+    } catch {
+      setIndicatorError('Lost connection while checking scan status.');
+      stopIndicatorPolling();
+    }
+  };
+
+  // Not auto-triggered on page load, unlike the main scan above -
+  // deliberate: this scan runs a full independent universe discovery
+  // (~30-60s, ~150 live Yahoo calls - see swiss_volatility_indicator.py's
+  // own docstring for why it doesn't reuse the main scan's cached
+  // universe) AND depends on a threshold the user picks, so there's no
+  // sane default to auto-run against on every page visit the way the
+  // main scan's fixed-parameter rescan is.
+  const handleIndicatorRefresh = async () => {
+    setIndicatorError('');
+    try {
+      const response = await fetch(
+        `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
+        { method: 'POST' },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setIndicatorError(data?.error || `Server returned status ${response.status}`);
+        return;
+      }
+      setIndicatorStatus(data as IndicatorScanStatus);
+      stopIndicatorPolling();
+      indicatorPollTimer.current = setTimeout(pollIndicatorStatus, POLL_INTERVAL_MS);
+    } catch {
+      setIndicatorError('Failed to reach the research backend.');
+    }
+  };
+
   // "Stale" means the last scan finished on a previous UTC day - crash-
   // rebound's backend cache (research_job.py) is keyed on UTC calendar
   // day, so this mirrors that boundary exactly rather than inventing a
@@ -320,6 +420,16 @@ export default function VolatilityResearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Only checks whether an indicator scan is already in flight from an
+  // earlier visit (so a page reload mid-scan still shows "running" and
+  // resumes polling) - does NOT auto-start a new one, unlike the main
+  // scan's effect above. See handleIndicatorRefresh's own comment for why.
+  useEffect(() => {
+    pollIndicatorStatus();
+    return stopIndicatorPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
   const universeLabel = 'chf500m-plus-ex-smi';
@@ -332,6 +442,11 @@ export default function VolatilityResearchPage() {
   const handleDownloadTodayScreener = () => {
     const csv = rowsToCsv(sortedTodayScreener, TODAY_SCREENER_CSV_COLUMNS);
     downloadCsv(`swiss-${universeLabel}-today-${todayIso()}.csv`, csv);
+  };
+
+  const handleDownloadVolatilityIndicator = () => {
+    const csv = rowsToCsv(sortedVolatilityIndicator, VOLATILITY_INDICATOR_CSV_COLUMNS);
+    downloadCsv(`swiss-${universeLabel}-volatility-indicator-${indicatorThreshold}pct-${todayIso()}.csv`, csv);
   };
 
   return (
@@ -405,7 +520,7 @@ export default function VolatilityResearchPage() {
       )}
 
       <section style={{ marginTop: '28px' }}>
-        <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 12 months)</h3>
+        <h3 style={{ marginBottom: '4px' }}>Indicator of rebound (12 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Down 5%+, then within the next 3 trading days a close 5%+ above THAT crash-day close (not just vs. the
           previous day - still-falling days don&apos;t quietly count as progress). Cached once per day - Refresh
@@ -425,14 +540,19 @@ export default function VolatilityResearchPage() {
                   <SortableHeader label="Name" sortKey="name" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Sector" sortKey="sector" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Market cap" sortKey="market_cap" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
+                  <SortableHeader
+                    label="ADTV"
+                    sortKey="avg_volume_10d"
+                    sort={crashSort}
+                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
+                    title="Average daily trading volume over the last 10 days."
+                  />
                   <SortableHeader label="Loss date" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Loss close" sortKey="loss_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Loss volume" sortKey="loss_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Drop %" sortKey="drop_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Days to rebound" sortKey="days_to_rebound" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain volume" sortKey="gain_volume" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
                   <SortableHeader
                     label="Gain %"
                     sortKey="gain_pct"
@@ -451,14 +571,13 @@ export default function VolatilityResearchPage() {
                     <td style={cellStyle}>{row.name}</td>
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
                     <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
+                    <td style={cellStyle}>{formatVolume(row.avg_volume_10d)}</td>
                     <td style={cellStyle}>{row.loss_date}</td>
                     <td style={cellStyle}>CHF {row.loss_close.toFixed(2)}</td>
-                    <td style={cellStyle}>{formatVolume(row.loss_volume)}</td>
                     <td style={{ ...cellStyle, color: '#dc2626' }}>{row.drop_pct.toFixed(2)}%</td>
                     <td style={cellStyle}>{row.days_to_rebound}</td>
                     <td style={cellStyle}>{row.gain_date}</td>
                     <td style={cellStyle}>CHF {row.gain_close.toFixed(2)}</td>
-                    <td style={cellStyle}>{formatVolume(row.gain_volume)}</td>
                     <td style={{ ...cellStyle, color: '#16a34a' }}>+{row.gain_pct.toFixed(2)}%</td>
                   </tr>
                 ))}
@@ -508,6 +627,107 @@ export default function VolatilityResearchPage() {
                       {row.change_pct.toFixed(2)}%
                     </td>
                     <td style={cellStyle}>{row.volume_today.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      <section style={{ marginTop: '32px' }}>
+        <h3 style={{ marginBottom: '4px' }}>Indicator of volatility (12 months)</h3>
+        <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
+          Same universe as above. Counts trading days in the last 12 months that closed down at least the
+          selected % and days that closed up at least the selected % - companies with zero qualifying days
+          are omitted. Not run automatically - pick a threshold and click Refresh.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666' }}>
+            Threshold:
+            <select
+              value={indicatorThreshold}
+              disabled={isIndicatorRunning}
+              onChange={(e) => setIndicatorThreshold(Number(e.target.value))}
+              style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '13px' }}
+            >
+              {THRESHOLD_OPTIONS.map((pct) => (
+                <option key={pct} value={pct}>
+                  {pct}%
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={handleIndicatorRefresh}
+            disabled={isIndicatorRunning}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: isIndicatorRunning ? '#888' : '#0070f3',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '15px',
+              cursor: isIndicatorRunning ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {isIndicatorRunning ? 'Scanning… (1-3 min)' : 'Refresh'}
+          </button>
+          {indicatorStatus.status === 'done' && indicatorStatus.finished_at && (
+            <span style={{ color: '#666', fontSize: '13px' }}>
+              Last run ({indicatorStatus.threshold_pct}%): {new Date(indicatorStatus.finished_at).toLocaleString()}
+              {' · '}
+              {indicatorStatus.universe_size} tickers scanned
+            </span>
+          )}
+          {indicatorStatus.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
+        </div>
+
+        {indicatorError && (
+          <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
+            <strong>Error:</strong> {indicatorError}
+          </div>
+        )}
+        {indicatorStatus.status === 'error' && indicatorStatus.error && (
+          <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
+            <strong>Scan failed:</strong> {indicatorStatus.error}
+          </div>
+        )}
+
+        {indicatorStatus.status === 'done' && (indicatorStatus.volatility_indicator?.length ?? 0) === 0 && (
+          <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
+        )}
+        {indicatorStatus.status === 'done' && (indicatorStatus.volatility_indicator?.length ?? 0) > 0 && (
+          <>
+            <DownloadCsvButton onClick={handleDownloadVolatilityIndicator} />
+            <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+              <thead>
+                <tr>
+                  <SortableHeader label="Ticker" sortKey="ticker" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Name" sortKey="name" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Sector" sortKey="sector" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Market cap" sortKey="market_cap" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Loss days" sortKey="loss_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Gain days" sortKey="gain_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                  <SortableHeader label="Total days" sortKey="total_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedVolatilityIndicator.map((row, i) => (
+                  <tr key={`${row.ticker}-${i}`}>
+                    <td style={cellStyle}>
+                      <strong>{row.ticker}</strong>
+                    </td>
+                    <td style={cellStyle}>{row.name}</td>
+                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
+                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
+                    <td style={{ ...cellStyle, color: '#dc2626' }}>{row.loss_days}</td>
+                    <td style={{ ...cellStyle, color: '#16a34a' }}>{row.gain_days}</td>
+                    <td style={cellStyle}>
+                      <strong>{row.total_days}</strong>
+                    </td>
                   </tr>
                 ))}
               </tbody>
