@@ -59,6 +59,14 @@ interface ReboundScanStatus {
   started_at?: string;
   finished_at?: string;
   universe_size?: number;
+  // Count of tickers whose Yahoo Finance fetch genuinely failed (e.g. rate
+  // limiting) during discovery, as opposed to being legitimately excluded
+  // (wrong domicile, too illiquid) - a nonzero count here means this
+  // result may be missing companies that would otherwise qualify. The
+  // backend retries only these specific tickers on the next same-day
+  // Refresh rather than re-scanning the whole universe (see financial-
+  // sentiment-api's research_job.py).
+  failed_ticker_count?: number;
   crash_rebound?: CrashReboundRow[];
   error?: string;
 }
@@ -68,6 +76,7 @@ interface TodayScanStatus {
   started_at?: string;
   finished_at?: string;
   universe_size?: number;
+  failed_ticker_count?: number;
   today_screener?: TodayScreenerRow[];
   error?: string;
 }
@@ -78,6 +87,7 @@ interface IndicatorScanStatus {
   finished_at?: string;
   threshold_pct?: number;
   universe_size?: number;
+  failed_ticker_count?: number;
   volatility_indicator?: VolatilityIndicatorRow[];
   error?: string;
 }
@@ -319,6 +329,23 @@ function ErrorBanner({ label, message }: { label: string; message: string }) {
   return (
     <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
       <strong>{label}:</strong> {message}
+    </div>
+  );
+}
+
+// Shown instead of ErrorBanner (this isn't a failure - the scan
+// completed and produced a result) when some tickers couldn't be
+// fetched, most commonly Yahoo Finance rate-limiting mid-scan. Amber, not
+// red, to signal "incomplete" rather than "broken." Clicking Refresh
+// again the same day retries only these specific tickers rather than
+// re-scanning the whole universe (see failed_ticker_count's own comment
+// on the status interfaces above).
+function IncompleteScanBanner({ failedCount }: { failedCount: number }) {
+  return (
+    <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: '6px', fontSize: '13px' }}>
+      <strong>Incomplete result:</strong> {failedCount} ticker{failedCount === 1 ? '' : 's'} could not be fetched
+      (likely a Yahoo Finance rate limit) and may be missing from this table. Click Refresh again to retry just
+      the missing ones.
     </div>
   );
 }
@@ -632,6 +659,9 @@ export default function VolatilityResearchPage() {
         {indicatorStatus.status === 'error' && indicatorStatus.error && (
           <ErrorBanner label="Scan failed" message={indicatorStatus.error} />
         )}
+        {indicatorStatus.status === 'done' && (indicatorStatus.failed_ticker_count ?? 0) > 0 && (
+          <IncompleteScanBanner failedCount={indicatorStatus.failed_ticker_count!} />
+        )}
 
         {indicatorStatus.status === 'done' && (indicatorStatus.volatility_indicator?.length ?? 0) === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last run.</p>
@@ -695,6 +725,9 @@ export default function VolatilityResearchPage() {
         {reboundError && <ErrorBanner label="Error" message={reboundError} />}
         {reboundStatus.status === 'error' && reboundStatus.error && (
           <ErrorBanner label="Scan failed" message={reboundStatus.error} />
+        )}
+        {reboundStatus.status === 'done' && (reboundStatus.failed_ticker_count ?? 0) > 0 && (
+          <IncompleteScanBanner failedCount={reboundStatus.failed_ticker_count!} />
         )}
 
         {reboundStatus.status === 'done' && (reboundStatus.crash_rebound?.length ?? 0) === 0 && (
@@ -777,6 +810,9 @@ export default function VolatilityResearchPage() {
         {todayError && <ErrorBanner label="Error" message={todayError} />}
         {todayStatus.status === 'error' && todayStatus.error && (
           <ErrorBanner label="Scan failed" message={todayStatus.error} />
+        )}
+        {todayStatus.status === 'done' && (todayStatus.failed_ticker_count ?? 0) > 0 && (
+          <IncompleteScanBanner failedCount={todayStatus.failed_ticker_count!} />
         )}
 
         {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) === 0 && (
