@@ -279,22 +279,38 @@ function SortableHeader({
   );
 }
 
-function RefreshButton({ onClick, isRunning, label = 'Refresh' }: { onClick: () => void; isRunning: boolean; label?: string }) {
+function RefreshButton({
+  onClick,
+  isRunning,
+  disabled,
+  label = 'Refresh',
+}: {
+  onClick: () => void;
+  isRunning: boolean;
+  disabled: boolean;
+  label?: string;
+}) {
+  // isRunning drives the label text (THIS table's own scan), disabled
+  // drives whether the button can be clicked at all - these are
+  // deliberately separate props, not one flag: disabled also covers
+  // "a DIFFERENT table's scan is running" (see isAnyScanRunning below),
+  // where the button should be greyed out but must NOT claim to be
+  // "Scanning…" itself, since it isn't.
   return (
     <button
       onClick={onClick}
-      disabled={isRunning}
+      disabled={disabled}
       style={{
         padding: '10px 20px',
-        backgroundColor: isRunning ? '#888' : '#0070f3',
+        backgroundColor: disabled ? '#888' : '#0070f3',
         color: '#fff',
         border: 'none',
         borderRadius: '6px',
         fontSize: '15px',
-        cursor: isRunning ? 'not-allowed' : 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
-      {isRunning ? 'Scanning… (1-3 min)' : label}
+      {isRunning ? 'Scanning… (1-3 min)' : disabled ? 'Waiting for another scan…' : label}
     </button>
   );
 }
@@ -343,6 +359,18 @@ export default function VolatilityResearchPage() {
     [indicatorStatus.volatility_indicator, indicatorSort],
   );
   const isIndicatorRunning = indicatorStatus.status === 'running';
+
+  // Confirmed live: running two of these scans at once (e.g. Indicator
+  // + Rebound in parallel) roughly doubles concurrent Yahoo calls
+  // (~150 each), which is enough to trip Yahoo's rate limiting -
+  // filter_domestic fails soft per-ticker, so a rate-limited run doesn't
+  // error, it just silently comes back with universe_size: 0 and no
+  // matches, which is confusing since nothing LOOKS like it failed.
+  // Disabling all three Refresh buttons while ANY of them is running
+  // (not just each button's own isRunning) forces scans to run
+  // sequentially instead - each pays its own ~150-call cost, but never
+  // overlapping with another's.
+  const isAnyScanRunning = isReboundRunning || isTodayRunning || isIndicatorRunning;
 
   // --- Rebound polling/refresh ---
 
@@ -578,7 +606,7 @@ export default function VolatilityResearchPage() {
             Threshold:
             <select
               value={indicatorThreshold}
-              disabled={isIndicatorRunning}
+              disabled={isAnyScanRunning}
               onChange={(e) => setIndicatorThreshold(Number(e.target.value))}
               style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '13px' }}
             >
@@ -589,7 +617,7 @@ export default function VolatilityResearchPage() {
               ))}
             </select>
           </label>
-          <RefreshButton onClick={handleIndicatorRefresh} isRunning={isIndicatorRunning} />
+          <RefreshButton onClick={handleIndicatorRefresh} isRunning={isIndicatorRunning} disabled={isAnyScanRunning} />
           {indicatorStatus.status === 'done' && indicatorStatus.finished_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
               Last run ({indicatorStatus.threshold_pct}%): {new Date(indicatorStatus.finished_at).toLocaleString()}
@@ -655,7 +683,7 @@ export default function VolatilityResearchPage() {
           gets a new day&apos;s data, not a re-scan of today&apos;s already-cached result.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <RefreshButton onClick={handleReboundRefresh} isRunning={isReboundRunning} />
+          <RefreshButton onClick={handleReboundRefresh} isRunning={isReboundRunning} disabled={isAnyScanRunning} />
           {reboundStatus.status === 'done' && reboundStatus.finished_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
               Last run: {new Date(reboundStatus.finished_at).toLocaleString()} · {reboundStatus.universe_size} tickers scanned
@@ -737,7 +765,7 @@ export default function VolatilityResearchPage() {
           Down 5%+ today, thinnest volume first. Own independent scan - click Refresh to update.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <RefreshButton onClick={handleTodayRefresh} isRunning={isTodayRunning} />
+          <RefreshButton onClick={handleTodayRefresh} isRunning={isTodayRunning} disabled={isAnyScanRunning} />
           {todayStatus.status === 'done' && todayStatus.finished_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
               Last run: {new Date(todayStatus.finished_at).toLocaleString()} · {todayStatus.universe_size} tickers scanned
