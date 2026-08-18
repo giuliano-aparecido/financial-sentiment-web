@@ -12,8 +12,8 @@ const RAG_API_KEY = process.env.RAG_API_KEY;
 
 // Cheap on the backend (an in-memory dict read - see research_job.py) and
 // meant to be polled every few seconds while a scan is running, so this
-// gets a much looser budget than the start route's 1/5minutes - just
-// enough to stop a runaway/misbehaving poll loop, not to bound normal use.
+// gets a much looser budget than a per-scan cooldown would - just enough
+// to stop a runaway/misbehaving poll loop, not to bound normal use.
 const RESEARCH_STATUS_WINDOW_MS = 60_000;
 const RESEARCH_STATUS_MAX_REQUESTS = 30;
 
@@ -26,19 +26,16 @@ export async function GET() {
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  // /research is restricted to one owner email, separately from the
-  // general ALLOWED_EMAILS allowlist that let this session sign in at all
-  // - see lib/researchAccess.ts and proxy.ts's own copy of this check.
   if (!isResearchAllowed(session.user.email)) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  if (!checkRateLimit(`research-status:${session.user.email}`, RESEARCH_STATUS_WINDOW_MS, RESEARCH_STATUS_MAX_REQUESTS)) {
+  if (!checkRateLimit(`research-rebound-status:${session.user.email}`, RESEARCH_STATUS_WINDOW_MS, RESEARCH_STATUS_MAX_REQUESTS)) {
     return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
   }
 
   try {
-    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/status`, {
+    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/rebound/status`, {
       method: 'GET',
       headers: { 'X-API-Key': RAG_API_KEY },
       signal: AbortSignal.timeout(10_000),

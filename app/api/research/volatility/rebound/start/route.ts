@@ -1,33 +1,31 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { checkRateLimit } from '@/lib/rateLimit';
 import { isResearchAllowed } from '@/lib/researchAccess';
 
 // The backend scan itself takes 1-3 minutes, but this route only has to
-// wait for the backend's own POST /start to return, which is immediate
-// (it kicks off a background job and responds right away - see
-// financial-sentiment-api's app/services/research_job.py). No need for a
-// long maxDuration here the way /api/analyze needs one for its own
-// synchronous HF inference call.
+// wait for the backend's own POST .../rebound/start to return, which is
+// immediate (it kicks off a background job and responds right away -
+// see financial-sentiment-api's app/services/research_job.py). No need
+// for a long maxDuration here the way /api/analyze needs one for its
+// own synchronous HF inference call.
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
 const RAG_API_URL = process.env.RAG_API_URL;
 const RAG_API_KEY = process.env.RAG_API_KEY;
 
-// Deliberately much stricter than /api/analyze's per-user budget: a full
-// scan makes ~150+ calls to Yahoo's unofficial endpoints on the backend,
-// so repeatedly triggering new scans (not just polling status - see the
-// status route's own limit) risks getting the backend's IP rate-limited
-// by Yahoo, which would break /api/analyze for every user, not just this
-// page. The backend has its own matching 1/5minutes backstop (see
-// financial-sentiment-api's app/routers/research.py) - this is the same
-// policy enforced per-user here too, rather than relying on the
-// backend's global limit alone to catch a single user hammering Refresh.
-const RESEARCH_START_WINDOW_MS = 5 * 60_000;
-const RESEARCH_START_MAX_REQUESTS = 1;
-
+// No checkRateLimit cooldown here as of 2026-08-19 (previously a
+// "research:" 1-per-5-minutes bucket) - removed at the user's explicit
+// request: "user can start a new scan as long there is no scan of it
+// running" - a flat time-window cooldown was blocking exactly that. The
+// real protection against wasted duplicate yfinance calls is the
+// backend's own single-flight-per-scan-type behavior (see
+// financial-sentiment-api's research_job.py and app/routers/research.py,
+// which dropped the matching backend-side override for the same
+// reason) - calling .../rebound/start while a rebound scan is already
+// running just returns its in-flight status, no new scan actually
+// starts.
 export async function POST() {
   if (!RAG_API_URL || !RAG_API_KEY) {
     return NextResponse.json({ error: 'Server is not configured.' }, { status: 500 });
@@ -48,18 +46,8 @@ export async function POST() {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  // "research:"-prefixed key so this budget is independent of
-  // /api/analyze's own per-user bucket (same checkRateLimit call, same
-  // Map, different key -> different bucket).
-  if (!checkRateLimit(`research:${session.user.email}`, RESEARCH_START_WINDOW_MS, RESEARCH_START_MAX_REQUESTS)) {
-    return NextResponse.json(
-      { error: 'A scan was already started recently. Please wait a few minutes before starting another.' },
-      { status: 429 },
-    );
-  }
-
   try {
-    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/start`, {
+    const upstream = await fetch(`${RAG_API_URL}/api/research/volatility/rebound/start`, {
       method: 'POST',
       headers: { 'X-API-Key': RAG_API_KEY },
       signal: AbortSignal.timeout(10_000),
