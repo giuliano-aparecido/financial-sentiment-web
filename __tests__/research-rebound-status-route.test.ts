@@ -17,7 +17,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 const AUTHED_SESSION = { user: { email: 'user@example.com' } };
 
-describe('GET /api/research/volatility/status', () => {
+describe('GET /api/research/volatility/rebound/status', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -37,38 +37,38 @@ describe('GET /api/research/volatility/status', () => {
 
   it('returns 500 when RAG_API_URL/RAG_API_KEY are not configured', async () => {
     delete process.env.RAG_API_URL;
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(500);
   });
 
   it('returns 401 when there is no session', async () => {
     vi.mocked(getServerSession).mockResolvedValue(null);
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(401);
   });
 
   it('returns 404 when the session email is not the research-allowed one', async () => {
     process.env.ALLOWED_EMAILS_RESEARCH = 'someone-else@example.com';
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(404);
   });
 
   it('returns 429 when the polling rate limit is exceeded', async () => {
     vi.mocked(checkRateLimit).mockReturnValue(false);
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(429);
   });
 
-  it('uses a distinct key from the start route so polling and starting have independent budgets', async () => {
+  it('uses a rebound-specific key, independent of the today/indicator status budgets', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'idle' }), { status: 200 })));
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     await GET();
     expect(checkRateLimit).toHaveBeenCalledWith(
-      `research-status:${AUTHED_SESSION.user.email}`,
+      `research-rebound-status:${AUTHED_SESSION.user.email}`,
       expect.any(Number),
       expect.any(Number),
     );
@@ -79,15 +79,15 @@ describe('GET /api/research/volatility/status', () => {
       'fetch',
       vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { name: 'TimeoutError' })),
     );
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(504);
   });
 
   it('returns the upstream status JSON on success', async () => {
-    const fakeStatus = { status: 'done', crash_rebound: [{ ticker: 'NVDA.SW' }], today_screener: [] };
+    const fakeStatus = { status: 'done', crash_rebound: [{ ticker: 'NVDA.SW' }] };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fakeStatus), { status: 200 })));
-    const { GET } = await import('../app/api/research/volatility/status/route');
+    const { GET } = await import('../app/api/research/volatility/rebound/status/route');
     const response = await GET();
     expect(response.status).toBe(200);
     const data = await response.json();

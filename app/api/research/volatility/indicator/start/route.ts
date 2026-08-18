@@ -1,28 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { checkRateLimit } from '@/lib/rateLimit';
 import { isResearchAllowed } from '@/lib/researchAccess';
 
-// Entirely separate route from ../start/route.ts (the crash-rebound +
-// today-screener scan) - this table has its own independent Refresh
-// button + threshold selector, backed by its own job/cache on the
-// backend (see financial-sentiment-api's research_job.py module
-// docstring for why it's a genuinely separate job, not folded into the
-// main one). Same "kicks off a background job and responds right away"
-// shape as the main /start route, so the same short maxDuration applies.
+// Entirely separate route from ../rebound/start and ../today/start -
+// this table has its own independent Refresh button + threshold
+// selector, backed by its own job/cache on the backend (see financial-
+// sentiment-api's research_job.py module docstring for why it's a
+// genuinely separate job). Same "kicks off a background job and
+// responds right away" shape as the other /start routes, so the same
+// short maxDuration applies.
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
 const RAG_API_URL = process.env.RAG_API_URL;
 const RAG_API_KEY = process.env.RAG_API_KEY;
 
-// Own rate-limit bucket ("research-indicator:", not "research:") so
-// hitting this table's Refresh doesn't consume the main scan's 1-per-
-// 5-minutes budget or vice versa - same reasoning as why the backend job
-// itself is separate, just applied to this proxy's own per-user limiter.
-const RESEARCH_INDICATOR_START_WINDOW_MS = 5 * 60_000;
-const RESEARCH_INDICATOR_START_MAX_REQUESTS = 1;
+// No checkRateLimit cooldown here as of 2026-08-19 (previously a
+// "research-indicator:" 1-per-5-minutes bucket) - see ../rebound/start/
+// route.ts's own comment for the full reasoning (removed at the user's
+// explicit request; single-flight on the backend is the real
+// protection). Matters especially here: the user explicitly wants to be
+// able to start a new scan immediately after changing the threshold,
+// which a flat per-user cooldown would have blocked regardless of
+// whether the threshold actually changed.
 
 const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
 
@@ -49,13 +50,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: 'threshold_pct must be one of 2, 3, or 5.' },
       { status: 400 },
-    );
-  }
-
-  if (!checkRateLimit(`research-indicator:${session.user.email}`, RESEARCH_INDICATOR_START_WINDOW_MS, RESEARCH_INDICATOR_START_MAX_REQUESTS)) {
-    return NextResponse.json(
-      { error: 'A scan was already started recently. Please wait a few minutes before starting another.' },
-      { status: 429 },
     );
   }
 
