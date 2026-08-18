@@ -28,14 +28,13 @@ interface TodayScreenerRow {
   price: number | null;
   change_pct: number;
   volume_today: number;
-  avg_volume_3mo: number | null;
+  avg_volume_10d: number | null;
 }
 
 interface ScanStatus {
   status: 'idle' | 'running' | 'done' | 'error';
   started_at?: string;
   finished_at?: string;
-  all_caps?: boolean;
   universe_size?: number;
   crash_rebound?: CrashReboundRow[];
   today_screener?: TodayScreenerRow[];
@@ -222,10 +221,6 @@ export default function VolatilityResearchPage() {
   const { data: session } = useSession();
   const [status, setStatus] = useState<ScanStatus>({ status: 'idle' });
   const [error, setError] = useState('');
-  // Drives the NEXT scan triggered via Refresh - not necessarily what the
-  // currently-displayed results reflect (see status.all_caps for that,
-  // which is what the LAST completed/running scan actually used).
-  const [allCaps, setAllCaps] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Default to null (backend order: loss_date desc / volume ratio asc -
@@ -280,7 +275,7 @@ export default function VolatilityResearchPage() {
   const handleRefresh = async () => {
     setError('');
     try {
-      const response = await fetch(`/api/research/volatility/start?all_caps=${allCaps}`, { method: 'POST' });
+      const response = await fetch('/api/research/volatility/start', { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setError(data?.error || `Server returned status ${response.status}`);
@@ -327,7 +322,7 @@ export default function VolatilityResearchPage() {
 
   const todayIso = () => new Date().toISOString().slice(0, 10);
 
-  const universeLabel = status.all_caps ? 'volatility-ex-smi' : 'small-caps';
+  const universeLabel = 'chf500m-plus-ex-smi';
 
   const handleDownloadCrashRebound = () => {
     const csv = rowsToCsv(sortedCrashRebound, CRASH_REBOUND_CSV_COLUMNS);
@@ -347,11 +342,9 @@ export default function VolatilityResearchPage() {
           <p style={{ color: '#666' }}>
             SIX Swiss Exchange, domestic only, looking for volatile movers (crash-then-rebound and big daily
             losses) - not blue chips: the SMI&apos;s 20 largest-by-market-cap names are always excluded.{' '}
-            {status.all_caps
-              ? 'Universe: small/mid/large caps.'
-              : 'Universe: small caps only.'}{' '}
-            At least 50,000 shares traded today - thinly-traded names excluded. For research, not investment
-            advice.
+            Universe: market cap over CHF 500M, no upper bound.{' '}
+            At least 50,000 shares traded on average over the last 10 days - thinly-traded names excluded. For
+            research, not investment advice.
           </p>
         </div>
         {session?.user?.email && (
@@ -392,19 +385,9 @@ export default function VolatilityResearchPage() {
         >
           {isRunning ? 'Scanning… (1-3 min)' : 'Refresh'}
         </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666', cursor: isRunning ? 'not-allowed' : 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={allCaps}
-            disabled={isRunning}
-            onChange={(e) => setAllCaps(e.target.checked)}
-          />
-          Include mid/large caps too (excludes SMI mega-caps)
-        </label>
         {status.status === 'done' && status.finished_at && (
           <span style={{ color: '#666', fontSize: '13px' }}>
-            Last run ({status.all_caps ? 'small/mid/large, ex-SMI' : 'small caps'}):{' '}
-            {new Date(status.finished_at).toLocaleString()} · {status.universe_size} tickers scanned
+            Last run: {new Date(status.finished_at).toLocaleString()} · {status.universe_size} tickers scanned
           </span>
         )}
         {status.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
@@ -422,7 +405,7 @@ export default function VolatilityResearchPage() {
       )}
 
       <section style={{ marginTop: '28px' }}>
-        <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 3 months)</h3>
+        <h3 style={{ marginBottom: '4px' }}>Crash then rebound (last 12 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Down 5%+, then within the next 3 trading days a close 5%+ above THAT crash-day close (not just vs. the
           previous day - still-falling days don&apos;t quietly count as progress). Cached once per day - Refresh
