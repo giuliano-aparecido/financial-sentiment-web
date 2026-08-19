@@ -64,12 +64,14 @@ interface ReboundScanResult {
   rows: CrashReboundRow[];
   scan_run_at: string | null;
   is_running: boolean;
+  failed_ticker_count: number;
 }
 
 interface IndicatorScanResult {
   rows: VolatilityIndicatorRow[];
   scan_run_at: string | null;
   is_running: boolean;
+  failed_ticker_count: number;
 }
 
 interface TodayScanStatus {
@@ -345,12 +347,36 @@ function ScanInProgressNotice() {
   );
 }
 
+// Shown when the last completed scan couldn't fetch every ticker (e.g.
+// Yahoo rate-limiting mid-scan) - the table below is real but incomplete,
+// not a display bug. Refresh only retries these specific tickers rather
+// than redoing the whole scan (see financial-sentiment-api's
+// scheduler.py: trigger_rebound_scan/trigger_indicator_scan).
+function IncompleteScanWarning({ count }: { count: number }) {
+  return (
+    <p
+      style={{
+        padding: '12px',
+        backgroundColor: '#fef9c3',
+        border: '1px solid #fde047',
+        borderRadius: '6px',
+        color: '#854d0e',
+        fontSize: '13px',
+      }}
+    >
+      <strong>{count}</strong> {count === 1 ? 'company' : 'companies'} failed to fetch and{' '}
+      {count === 1 ? 'is' : 'are'} missing from this table (temporary fetch error, not excluded on purpose).
+      Click Refresh to retry just {count === 1 ? 'it' : 'those'}.
+    </p>
+  );
+}
+
 export default function VolatilityResearchPage() {
   const { data: session } = useSession();
 
   // --- Rebound: reads the latest scheduled scan; manual Refresh triggers
   // the same guarded pipeline the cron uses (see interfaces' own comment) ---
-  const [reboundResult, setReboundResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null, is_running: false });
+  const [reboundResult, setReboundResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null, is_running: false, failed_ticker_count: 0 });
   const [reboundLoading, setReboundLoading] = useState(true);
   const [reboundError, setReboundError] = useState('');
   const reboundPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -375,7 +401,7 @@ export default function VolatilityResearchPage() {
   // --- Volatility-indicator: reads the latest scheduled scan for the
   // selected threshold; manual Refresh triggers a run covering ALL
   // thresholds (see interfaces' own comment and IndicatorScanResult) ---
-  const [indicatorResult, setIndicatorResult] = useState<IndicatorScanResult>({ rows: [], scan_run_at: null, is_running: false });
+  const [indicatorResult, setIndicatorResult] = useState<IndicatorScanResult>({ rows: [], scan_run_at: null, is_running: false, failed_ticker_count: 0 });
   const [indicatorLoading, setIndicatorLoading] = useState(true);
   const [indicatorError, setIndicatorError] = useState('');
   const [indicatorThreshold, setIndicatorThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
@@ -685,6 +711,9 @@ export default function VolatilityResearchPage() {
         {indicatorError && <ErrorBanner label="Error" message={indicatorError} />}
 
         {indicatorResult.is_running && <ScanInProgressNotice />}
+        {!indicatorResult.is_running && indicatorResult.failed_ticker_count > 0 && (
+          <IncompleteScanWarning count={indicatorResult.failed_ticker_count} />
+        )}
 
         {!indicatorLoading && !indicatorResult.is_running && indicatorResult.scan_run_at && indicatorResult.rows.length === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last scan.</p>
@@ -755,6 +784,9 @@ export default function VolatilityResearchPage() {
         {reboundError && <ErrorBanner label="Error" message={reboundError} />}
 
         {reboundResult.is_running && <ScanInProgressNotice />}
+        {!reboundResult.is_running && reboundResult.failed_ticker_count > 0 && (
+          <IncompleteScanWarning count={reboundResult.failed_ticker_count} />
+        )}
 
         {!reboundLoading && !reboundResult.is_running && reboundResult.scan_run_at && reboundResult.rows.length === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last scan.</p>
