@@ -7,6 +7,7 @@ vi.mock('next-auth', () => ({
 
 vi.mock('@/lib/auth', () => ({
   authOptions: {},
+  isAllowedEmail: vi.fn(() => true),
 }));
 
 vi.mock('@/lib/rateLimit', () => ({
@@ -14,6 +15,7 @@ vi.mock('@/lib/rateLimit', () => ({
 }));
 
 import { getServerSession } from 'next-auth';
+import { isAllowedEmail } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 const AUTHED_SESSION = { user: { email: 'user@example.com' } };
@@ -34,6 +36,7 @@ describe('POST /api/analyze', () => {
     process.env.RAG_API_KEY = 'test-rag-key';
     vi.mocked(getServerSession).mockResolvedValue(AUTHED_SESSION as never);
     vi.mocked(checkRateLimit).mockReturnValue(true);
+    vi.mocked(isAllowedEmail).mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -54,6 +57,13 @@ describe('POST /api/analyze', () => {
     const { POST } = await import('../app/api/analyze/route');
     const response = await POST(makeRequest({ user_query: 'AAPL' }));
     expect(response.status).toBe(401);
+  });
+
+  it('returns 404 when the session email is not in ALLOWED_EMAILS (e.g. a research-only email)', async () => {
+    vi.mocked(isAllowedEmail).mockReturnValue(false);
+    const { POST } = await import('../app/api/analyze/route');
+    const response = await POST(makeRequest({ user_query: 'AAPL' }));
+    expect(response.status).toBe(404);
   });
 
   it('returns 429 when the rate limit is exceeded', async () => {

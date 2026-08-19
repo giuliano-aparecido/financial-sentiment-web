@@ -1,6 +1,7 @@
 import { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import { isResearchAllowed } from './researchAccess';
 
 const IS_DEV = process.env.NODE_ENV === 'development';
 const DEV_EMAIL = 'dev@local.test';
@@ -24,6 +25,14 @@ const ALLOWED_EMAILS = new Set(
     .filter(Boolean),
 );
 
+// Exported so proxy.ts and /api/analyze can require this specifically, not
+// just "any signed-in user" - since ALLOWED_EMAILS_RESEARCH-only emails can
+// now sign in too (see the signIn callback below), a session alone no
+// longer implies ALLOWED_EMAILS membership the way it used to.
+export function isAllowedEmail(email: string | null | undefined): boolean {
+  return !!email && ALLOWED_EMAILS.has(email.toLowerCase());
+}
+
 export const authOptions: NextAuthOptions = {
   providers: IS_DEV
     ? [
@@ -45,7 +54,12 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user }) {
       if (IS_DEV) return true;
-      return !!user.email && ALLOWED_EMAILS.has(user.email.toLowerCase());
+      // ALLOWED_EMAILS_RESEARCH is a separate, independent allowlist, not a
+      // subset of ALLOWED_EMAILS - an email that's only in the research
+      // list must still be able to sign in at all (proxy.ts and
+      // /api/analyze then restrict what a non-ALLOWED_EMAILS session can
+      // actually reach to /research alone).
+      return isAllowedEmail(user.email) || isResearchAllowed(user.email);
     },
   },
   // Absolute ceiling on how long a session cookie is valid, regardless of
