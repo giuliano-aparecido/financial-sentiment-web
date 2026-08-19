@@ -565,8 +565,8 @@ export default function VolatilityResearchPage() {
           <h2>🇨🇭 Swiss Volatility Research</h2>
           <p style={{ color: '#666' }}>
             SIX Swiss Exchange, domestic only, looking for volatile movers (crash-then-rebound and big daily
-            losses) - not blue chips: the SMI&apos;s 20 largest-by-market-cap names are always excluded.{' '}
-            Universe: market cap over CHF 500M, no upper bound.{' '}
+            losses).{' '}
+            Universe: market cap over CHF 500M, no upper bound - that is the only requirement.{' '}
             At least 50,000 shares traded on average over the last 10 days - thinly-traded names excluded. For
             research, not investment advice. Each table below has its own independent Refresh button and scan.
           </p>

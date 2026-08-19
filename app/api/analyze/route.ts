@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions, isAllowedEmail } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 // The API's own inference call can take up to 280s against the Modal
@@ -30,6 +30,13 @@ export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // ALLOWED_EMAILS_RESEARCH is a separate allowlist from ALLOWED_EMAILS
+  // (see lib/auth.ts's signIn callback) - a research-only session can
+  // exist now, and this non-research route must not accept it, matching
+  // proxy.ts's own non-research branch.
+  if (!isAllowedEmail(session.user.email)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
   if (!checkRateLimit(session.user.email)) {
