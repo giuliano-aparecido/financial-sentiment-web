@@ -49,22 +49,27 @@ interface VolatilityIndicatorRow {
   total_days: number;
 }
 
-// Rebound and volatility-indicator are no longer scanned live on request
-// (2026-08-19) - financial-sentiment-api's scheduler.py now runs each on
-// a schedule (daily / monthly) and persists the result, at the user's
-// explicit request to cut Yahoo Finance call volume. These two just read
-// whatever was last saved - no status/running state, no polling, just
-// rows + when they were computed. "Today" (big-loss) is unchanged: it
-// stays fully live/on-demand, since intraday data has no meaningful
-// cache window - see its own TodayScanStatus below.
+// Rebound and volatility-indicator are no longer scanned live on every
+// click (2026-08-19) - financial-sentiment-api's scheduler.py now runs
+// each on a schedule (daily / monthly) and persists the result, at the
+// user's explicit request to cut Yahoo Finance call volume. A manual
+// Refresh button still exists for both (2026-08-19, also explicit
+// request) - it triggers the SAME guarded pipeline the cron uses, so
+// is_running here is true whether the in-progress scan was started
+// automatically or by this button, and the frontend can't tell (or need
+// to) which. "Today" (big-loss) is unchanged: fully live/on-demand via
+// its own separate job-slot status, since intraday data has no
+// meaningful cache window - see TodayScanStatus below.
 interface ReboundScanResult {
   rows: CrashReboundRow[];
   scan_run_at: string | null;
+  is_running: boolean;
 }
 
 interface IndicatorScanResult {
   rows: VolatilityIndicatorRow[];
   scan_run_at: string | null;
+  is_running: boolean;
 }
 
 interface TodayScanStatus {
@@ -285,9 +290,12 @@ function RefreshButton({
   label?: string;
 }) {
   // isRunning drives the label text, disabled drives whether the button
-  // can be clicked at all - kept as separate props (only Today uses this
-  // component now - rebound/indicator no longer trigger live scans, see
-  // their own state/fetch functions above).
+  // can be clicked at all - kept as separate props. All three tables use
+  // this now: rebound/indicator's isRunning reflects scheduler.py's
+  // is_*_scan_running() (true for a cron-started run too, not just one
+  // this button itself triggered - see ReboundScanResult/
+  // IndicatorScanResult's own comment), today's reflects its own
+  // research_job.py job-slot status.
   return (
     <button
       onClick={onClick}
@@ -315,13 +323,37 @@ function ErrorBanner({ label, message }: { label: string; message: string }) {
   );
 }
 
+// Shown INSTEAD OF the table while a scan is running - whether that run
+// was started by the cron or by this table's own Refresh button, they're
+// indistinguishable here on purpose (see ReboundScanResult/
+// IndicatorScanResult's own comment).
+function ScanInProgressNotice() {
+  return (
+    <p
+      style={{
+        padding: '12px',
+        backgroundColor: '#eff6ff',
+        border: '1px solid #bfdbfe',
+        borderRadius: '6px',
+        color: '#1e40af',
+        fontSize: '13px',
+      }}
+    >
+      A scan is currently running (started automatically or manually) - this can take several minutes. This
+      table will update automatically once it&apos;s done.
+    </p>
+  );
+}
+
 export default function VolatilityResearchPage() {
   const { data: session } = useSession();
 
-  // --- Rebound: reads the latest scheduled scan, no live trigger ---
-  const [reboundResult, setReboundResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null });
+  // --- Rebound: reads the latest scheduled scan; manual Refresh triggers
+  // the same guarded pipeline the cron uses (see interfaces' own comment) ---
+  const [reboundResult, setReboundResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null, is_running: false });
   const [reboundLoading, setReboundLoading] = useState(true);
   const [reboundError, setReboundError] = useState('');
+  const reboundPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [crashSort, setCrashSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedCrashRebound = useMemo(
     () => sortRows(reboundResult.rows, crashSort),
@@ -341,34 +373,79 @@ export default function VolatilityResearchPage() {
   const isTodayRunning = todayStatus.status === 'running';
 
   // --- Volatility-indicator: reads the latest scheduled scan for the
-  // selected threshold, no live trigger ---
-  const [indicatorResult, setIndicatorResult] = useState<IndicatorScanResult>({ rows: [], scan_run_at: null });
+  // selected threshold; manual Refresh triggers a run covering ALL
+  // thresholds (see interfaces' own comment and IndicatorScanResult) ---
+  const [indicatorResult, setIndicatorResult] = useState<IndicatorScanResult>({ rows: [], scan_run_at: null, is_running: false });
   const [indicatorLoading, setIndicatorLoading] = useState(true);
   const [indicatorError, setIndicatorError] = useState('');
   const [indicatorThreshold, setIndicatorThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
+  const indicatorPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [indicatorSort, setIndicatorSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedVolatilityIndicator = useMemo(
     () => sortRows(indicatorResult.rows, indicatorSort),
     [indicatorResult.rows, indicatorSort],
   );
 
-  // --- Rebound fetch ---
+  // --- Rebound fetch/poll/trigger ---
 
-  const fetchReboundResult = async () => {
-    setReboundLoading(true);
+  const stopReboundPolling = () => {
+    if (reboundPollTimer.current) {
+      clearTimeout(reboundPollTimer.current);
+      reboundPollTimer.current = null;
+    }
+  };
+
+  // Fetches the current result and, if a scan is running (started by the
+  // cron OR by handleReboundRefresh below - indistinguishable and that's
+  // the point, see interfaces' own comment), keeps polling every 5s until
+  // it isn't. Called on mount AND right after a manual trigger, so both
+  // paths converge on the same loop.
+  const fetchReboundResult = async (): Promise<void> => {
     setReboundError('');
     try {
       const response = await fetch('/api/research/volatility/rebound');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setReboundError(data?.error || `Server returned status ${response.status}`);
+        stopReboundPolling();
         return;
       }
-      setReboundResult(data as ReboundScanResult);
+      const parsed = data as ReboundScanResult;
+      setReboundResult(parsed);
+      if (parsed.is_running) {
+        reboundPollTimer.current = setTimeout(fetchReboundResult, POLL_INTERVAL_MS);
+      } else {
+        stopReboundPolling();
+      }
     } catch {
       setReboundError('Failed to reach the research backend.');
+      stopReboundPolling();
     } finally {
       setReboundLoading(false);
+    }
+  };
+
+  const handleReboundRefresh = async () => {
+    const lastRunText = reboundResult.scan_run_at
+      ? `The last scan ran at ${new Date(reboundResult.scan_run_at).toLocaleString()}.`
+      : 'No scan has run yet.';
+    const confirmed = window.confirm(
+      `${lastRunText}\n\nRunning a new scan makes live Yahoo Finance calls and can take several minutes. Continue?`,
+    );
+    if (!confirmed) return;
+
+    setReboundError('');
+    try {
+      const response = await fetch('/api/research/volatility/rebound/start', { method: 'POST' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setReboundError(data?.error || `Server returned status ${response.status}`);
+        return;
+      }
+      stopReboundPolling();
+      fetchReboundResult();
+    } catch {
+      setReboundError('Failed to reach the research backend.');
     }
   };
 
@@ -418,34 +495,82 @@ export default function VolatilityResearchPage() {
     }
   };
 
-  // --- Volatility-indicator fetch ---
+  // --- Volatility-indicator fetch/poll/trigger ---
 
-  const fetchIndicatorResult = async (thresholdPct: number) => {
-    setIndicatorLoading(true);
+  const stopIndicatorPolling = () => {
+    if (indicatorPollTimer.current) {
+      clearTimeout(indicatorPollTimer.current);
+      indicatorPollTimer.current = null;
+    }
+  };
+
+  // Same shape as fetchReboundResult above - polls while is_running,
+  // whether that run was started by the cron or by handleIndicatorRefresh.
+  // is_running is shared across all three thresholds (one scan run covers
+  // all of them - see scheduler._run_indicator_scans), so this keeps
+  // polling under whichever threshold is currently selected regardless of
+  // which one the in-progress scan happens to be about.
+  const fetchIndicatorResult = async (thresholdPct: number): Promise<void> => {
     setIndicatorError('');
     try {
       const response = await fetch(`/api/research/volatility/indicator?threshold_pct=${thresholdPct}`);
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
+        stopIndicatorPolling();
         return;
       }
-      setIndicatorResult(data as IndicatorScanResult);
+      const parsed = data as IndicatorScanResult;
+      setIndicatorResult(parsed);
+      if (parsed.is_running) {
+        indicatorPollTimer.current = setTimeout(() => fetchIndicatorResult(thresholdPct), POLL_INTERVAL_MS);
+      } else {
+        stopIndicatorPolling();
+      }
     } catch {
       setIndicatorError('Failed to reach the research backend.');
+      stopIndicatorPolling();
     } finally {
       setIndicatorLoading(false);
     }
   };
 
-  // Rebound and indicator each fetch once (rebound on mount, indicator on
-  // mount AND whenever the threshold selector changes) - no polling, no
-  // live trigger, since financial-sentiment-api's scheduler now runs
-  // these on a schedule instead (see the interfaces' own comments).
-  // Today keeps its original poll-current-status-on-load behavior
-  // unchanged, since it's still a live/on-demand background job.
+  const handleIndicatorRefresh = async () => {
+    const lastRunText = indicatorResult.scan_run_at
+      ? `The last scan ran at ${new Date(indicatorResult.scan_run_at).toLocaleString()}.`
+      : 'No scan has run yet.';
+    const confirmed = window.confirm(
+      `${lastRunText}\n\nRunning a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes. Continue?`,
+    );
+    if (!confirmed) return;
+
+    setIndicatorError('');
+    try {
+      const response = await fetch(
+        `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
+        { method: 'POST' },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setIndicatorError(data?.error || `Server returned status ${response.status}`);
+        return;
+      }
+      stopIndicatorPolling();
+      fetchIndicatorResult(indicatorThreshold);
+    } catch {
+      setIndicatorError('Failed to reach the research backend.');
+    }
+  };
+
+  // Rebound fetches once on mount, then polls only if a scan turns out to
+  // be running. Indicator does the same on mount AND whenever the
+  // threshold selector changes (a fresh read for that threshold, still
+  // subject to the same is_running polling). Today keeps its original
+  // poll-current-status-on-load behavior unchanged, since it's still a
+  // live/on-demand background job with its own separate status shape.
   useEffect(() => {
     fetchReboundResult();
+    return stopReboundPolling;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -456,7 +581,9 @@ export default function VolatilityResearchPage() {
   }, []);
 
   useEffect(() => {
+    stopIndicatorPolling();
     fetchIndicatorResult(indicatorThreshold);
+    return stopIndicatorPolling;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicatorThreshold]);
 
@@ -489,8 +616,8 @@ export default function VolatilityResearchPage() {
             losses).{' '}
             Universe: market cap over CHF 500M, no upper bound - that is the only requirement.{' '}
             At least 50,000 shares traded on average over the last 10 days - thinly-traded names excluded. For
-            research, not investment advice. Indicator and rebound are scanned automatically (monthly / daily);
-            only Big loss (today) still has its own on-demand Refresh button.
+            research, not investment advice. Indicator and rebound are scanned automatically (monthly / daily) -
+            each also has its own Refresh button to force an early run; Big loss (today) is always live/on-demand.
           </p>
         </div>
         {session?.user?.email && (
@@ -521,8 +648,7 @@ export default function VolatilityResearchPage() {
           Same universe as the other tables below. Shows companies that had AT LEAST ONE trading day closing
           down by the selected % or more AND at least one day closing up by the selected % or more, over the
           last 12 months - a company with only losses or only gains is omitted. Scanned automatically once a
-          month (see &quot;Last updated&quot; below) - pick a threshold to see that month&apos;s result, nothing
-          runs live here anymore.
+          month (see &quot;Last updated&quot; below); Refresh forces an early run covering all three thresholds.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666' }}>
@@ -540,6 +666,11 @@ export default function VolatilityResearchPage() {
               ))}
             </select>
           </label>
+          <RefreshButton
+            onClick={handleIndicatorRefresh}
+            isRunning={indicatorResult.is_running}
+            disabled={indicatorLoading || indicatorResult.is_running}
+          />
           {indicatorLoading && <span style={{ color: '#666', fontSize: '13px' }}>Loading…</span>}
           {!indicatorLoading && indicatorResult.scan_run_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
@@ -547,16 +678,18 @@ export default function VolatilityResearchPage() {
             </span>
           )}
           {!indicatorLoading && !indicatorResult.scan_run_at && (
-            <span style={{ color: '#666', fontSize: '13px' }}>No scheduled scan has run yet.</span>
+            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet.</span>
           )}
         </div>
 
         {indicatorError && <ErrorBanner label="Error" message={indicatorError} />}
 
-        {!indicatorLoading && indicatorResult.scan_run_at && indicatorResult.rows.length === 0 && (
+        {indicatorResult.is_running && <ScanInProgressNotice />}
+
+        {!indicatorLoading && !indicatorResult.is_running && indicatorResult.scan_run_at && indicatorResult.rows.length === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last scan.</p>
         )}
-        {indicatorResult.rows.length > 0 && (
+        {!indicatorResult.is_running && indicatorResult.rows.length > 0 && (
           <>
             <DownloadCsvButton onClick={handleDownloadVolatilityIndicator} />
             <div style={{ overflowX: 'auto' }}>
@@ -600,9 +733,14 @@ export default function VolatilityResearchPage() {
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Down 5%+, then within the next 3 trading days a close 5%+ above THAT crash-day close (not just vs. the
           previous day - still-falling days don&apos;t quietly count as progress). Scanned automatically once a
-          day (see &quot;Last updated&quot; below) - nothing runs live here anymore.
+          day (see &quot;Last updated&quot; below); Refresh forces an early run.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <RefreshButton
+            onClick={handleReboundRefresh}
+            isRunning={reboundResult.is_running}
+            disabled={reboundLoading || reboundResult.is_running}
+          />
           {reboundLoading && <span style={{ color: '#666', fontSize: '13px' }}>Loading…</span>}
           {!reboundLoading && reboundResult.scan_run_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
@@ -610,16 +748,18 @@ export default function VolatilityResearchPage() {
             </span>
           )}
           {!reboundLoading && !reboundResult.scan_run_at && (
-            <span style={{ color: '#666', fontSize: '13px' }}>No scheduled scan has run yet.</span>
+            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet.</span>
           )}
         </div>
 
         {reboundError && <ErrorBanner label="Error" message={reboundError} />}
 
-        {!reboundLoading && reboundResult.scan_run_at && reboundResult.rows.length === 0 && (
+        {reboundResult.is_running && <ScanInProgressNotice />}
+
+        {!reboundLoading && !reboundResult.is_running && reboundResult.scan_run_at && reboundResult.rows.length === 0 && (
           <p style={{ color: '#666', fontSize: '13px' }}>No matches in the last scan.</p>
         )}
-        {reboundResult.rows.length > 0 && (
+        {!reboundResult.is_running && reboundResult.rows.length > 0 && (
           <>
             <DownloadCsvButton onClick={handleDownloadCrashRebound} />
             <div style={{ overflowX: 'auto' }}>
