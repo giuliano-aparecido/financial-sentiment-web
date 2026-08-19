@@ -6,6 +6,7 @@ import { signOutToLogin } from '@/lib/signOutToLogin';
 
 interface AnalysisResult {
   ticker?: string;
+  ticker_was_explicit?: boolean;
   model_architecture?: string;
   predicted_direction?: 'BULLISH' | 'BEARISH' | string;
   confidence?: number;
@@ -150,6 +151,24 @@ export default function Home() {
       {result && (
         <div style={{ marginTop: '28px', padding: '20px', border: '1px solid #e5e7eb', borderRadius: '8px', backgroundColor: '#f9fafb' }}>
           <h3>Analysis Results {result.ticker ? `(${result.ticker})` : ''}</h3>
+
+          {result.ticker_was_explicit === false && (
+            <div
+              style={{
+                marginBottom: '16px',
+                padding: '12px',
+                backgroundColor: '#fef9c3',
+                border: '1px solid #fde047',
+                borderRadius: '6px',
+                color: '#854d0e',
+                fontSize: '14px',
+              }}
+            >
+              <strong>No specific ticker found in your question.</strong> Showing analysis for{' '}
+              <strong>{result.ticker || 'AAPL'}</strong> (default) instead. Try naming a company or wrapping the
+              ticker in a cashtag, e.g. <code>$AAPL</code>, for an analysis of the stock you meant.
+            </div>
+          )}
 
           {hasData(result.answer) && (
             <div
