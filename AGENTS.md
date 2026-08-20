@@ -16,4 +16,4 @@ below it is hand-written and won't be overwritten.
 
 See [`README.md`](README.md) for architecture, auth/idle-logout design,
 local setup, and the contributing note (branch + PR, never push directly
-to `main` - see the fleet-wide `CLAUDE.md` one directory up).
+to `main` - see the fleet-wide `AGENTS.md` one directory up).
