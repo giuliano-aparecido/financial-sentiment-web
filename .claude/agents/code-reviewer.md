@@ -68,7 +68,7 @@ from one repo apply to another.
 
 - **Meaningful names**: variables/functions/classes reveal intent; no `data`, `tmp`, `flag2`, or misleading names; searchable names for anything used more than once
 - **Functions**: small, do one thing, one level of abstraction per function; few arguments (ideally ≤3); no boolean flag arguments that branch behavior; no side effects hidden behind an innocuous name
-- **Comments**: code should mostly be self-explanatory; comments explain *why*, not *what*; flag commented-out code and stale/misleading comments
+- **Comments**: comments should be avoided. When code is readable and understandable, there is no need for comments and they should be removed. In case there is a need to explain why the code is the way it is, then a self-explanatory comment is allowed; comments explain *why*, not *what*; flag commented-out code and stale/misleading comments
 - **Formatting**: consistent vertical/horizontal formatting, related concepts kept close together
 - **Error handling**: exceptions over error codes; don't return/pass null where avoidable; don't let error handling obscure logic
 - **DRY**: no duplicated logic that should be extracted; duplicated *knowledge*, not just duplicated text, is the real smell
