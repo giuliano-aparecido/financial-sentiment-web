@@ -16,4 +16,10 @@ below it is hand-written and won't be overwritten.
 
 See [`README.md`](README.md) for architecture, auth/idle-logout design,
 local setup, and the contributing note (branch + PR, never push directly
-to `main` - see the fleet-wide `CLAUDE.md` one directory up).
+to `main`).
+
+Fleet-wide conventions shared with this repo's siblings live in
+[`agent-config/AGENTS.md`](agent-config/AGENTS.md) (a git submodule),
+loaded automatically below for Claude Code.
+
+@agent-config/AGENTS.md
