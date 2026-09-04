@@ -33,9 +33,6 @@ interface FallBackToPassiveRefreshOptions {
   setTriggerDropped: (dropped: boolean) => void;
 }
 
-// The POST itself is abandoned rather than retried - no idempotency
-// machinery to safely retry a state-mutating request against a gateway
-// that may have received-but-not-acked it.
 export function fallBackToPassiveRefresh({
   stopPolling,
   fetchLatest,
@@ -109,5 +106,40 @@ export async function runBackendAwareFetch({
     setTriggerDropped(false);
     setError(networkErrorMessage);
     stopPolling();
+  }
+}
+
+interface RunBackendAwareMutationOptions {
+  url: string;
+  stopPolling: () => void;
+  fetchLatest: () => void;
+  setTriggerDropped: (dropped: boolean) => void;
+  setError: (error: string) => void;
+}
+
+type BackendAwareMutationResult = { ok: true; data: unknown } | { ok: false };
+
+export async function runBackendAwareMutation({
+  url,
+  stopPolling,
+  fetchLatest,
+  setTriggerDropped,
+  setError,
+}: RunBackendAwareMutationOptions): Promise<BackendAwareMutationResult> {
+  try {
+    const response = await fetch(url, { method: 'POST' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (isBackendUnavailableStatus(response.status)) {
+        fallBackToPassiveRefresh({ stopPolling, fetchLatest, setTriggerDropped });
+        return { ok: false };
+      }
+      setError((data as { error?: string } | null)?.error || `Server returned status ${response.status}`);
+      return { ok: false };
+    }
+    return { ok: true, data };
+  } catch {
+    fallBackToPassiveRefresh({ stopPolling, fetchLatest, setTriggerDropped });
+    return { ok: false };
   }
 }

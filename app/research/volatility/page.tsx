@@ -3,11 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { signOutToLogin } from '@/lib/signOutToLogin';
-import {
-  isBackendUnavailableStatus,
-  fallBackToPassiveRefresh,
-  runBackendAwareFetch,
-} from '@/lib/backendAwareFetch';
+import { runBackendAwareFetch, runBackendAwareMutation } from '@/lib/backendAwareFetch';
 
 interface CrashReboundRow {
   ticker: string;
@@ -391,12 +387,6 @@ function BackendStartingNotice() {
   );
 }
 
-// Shown after a manual Refresh/Retry click hits a cold backend (see
-// BackendStartingNotice's own comment) - unlike that passive notice,
-// nothing here is retrying the click itself, only the read that fetches
-// the last known result (see fallBackToPassiveRefresh's own comment) - so
-// this says so explicitly instead of reusing BackendStartingNotice's
-// "Retrying automatically…", which would be false for this path.
 function RequestNotSentNotice() {
   return (
     <InfoNotice>
@@ -533,33 +523,16 @@ export default function VolatilityResearchPage() {
 
     setReboundError('');
     setReboundTriggerDropped(false);
-    try {
-      const response = await fetch('/api/research/volatility/rebound/start', { method: 'POST' });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        // A cold backend can fail the POST itself, not just the polling
-        // GET it would normally trigger - see fallBackToPassiveRefresh's
-        // own comment for why this falls back rather than erroring.
-        if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh({
-            stopPolling: stopReboundPolling,
-            fetchLatest: fetchReboundResult,
-            setTriggerDropped: setReboundTriggerDropped,
-          });
-          return;
-        }
-        setReboundError(data?.error || `Server returned status ${response.status}`);
-        return;
-      }
-      stopReboundPolling();
-      fetchReboundResult();
-    } catch {
-      fallBackToPassiveRefresh({
-        stopPolling: stopReboundPolling,
-        fetchLatest: fetchReboundResult,
-        setTriggerDropped: setReboundTriggerDropped,
-      });
-    }
+    const result = await runBackendAwareMutation({
+      url: '/api/research/volatility/rebound/start',
+      stopPolling: stopReboundPolling,
+      fetchLatest: fetchReboundResult,
+      setTriggerDropped: setReboundTriggerDropped,
+      setError: setReboundError,
+    });
+    if (!result.ok) return;
+    stopReboundPolling();
+    fetchReboundResult();
   };
 
   // Separate from handleReboundRefresh above - Refresh is always a hard,
@@ -570,30 +543,16 @@ export default function VolatilityResearchPage() {
   const handleReboundRetry = async () => {
     setReboundError('');
     setReboundTriggerDropped(false);
-    try {
-      const response = await fetch('/api/research/volatility/rebound/retry', { method: 'POST' });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh({
-            stopPolling: stopReboundPolling,
-            fetchLatest: fetchReboundResult,
-            setTriggerDropped: setReboundTriggerDropped,
-          });
-          return;
-        }
-        setReboundError(data?.error || `Server returned status ${response.status}`);
-        return;
-      }
-      stopReboundPolling();
-      fetchReboundResult();
-    } catch {
-      fallBackToPassiveRefresh({
-        stopPolling: stopReboundPolling,
-        fetchLatest: fetchReboundResult,
-        setTriggerDropped: setReboundTriggerDropped,
-      });
-    }
+    const result = await runBackendAwareMutation({
+      url: '/api/research/volatility/rebound/retry',
+      stopPolling: stopReboundPolling,
+      fetchLatest: fetchReboundResult,
+      setTriggerDropped: setReboundTriggerDropped,
+      setError: setReboundError,
+    });
+    if (!result.ok) return;
+    stopReboundPolling();
+    fetchReboundResult();
   };
 
   // --- Today/big-loss polling/refresh ---
@@ -634,31 +593,17 @@ export default function VolatilityResearchPage() {
   const handleTodayRefresh = async () => {
     setTodayError('');
     setTodayTriggerDropped(false);
-    try {
-      const response = await fetch('/api/research/volatility/today/start', { method: 'POST' });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh({
-            stopPolling: stopTodayPolling,
-            fetchLatest: pollTodayStatus,
-            setTriggerDropped: setTodayTriggerDropped,
-          });
-          return;
-        }
-        setTodayError(data?.error || `Server returned status ${response.status}`);
-        return;
-      }
-      setTodayStatus(data as TodayScanStatus);
-      stopTodayPolling();
-      todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
-    } catch {
-      fallBackToPassiveRefresh({
-        stopPolling: stopTodayPolling,
-        fetchLatest: pollTodayStatus,
-        setTriggerDropped: setTodayTriggerDropped,
-      });
-    }
+    const result = await runBackendAwareMutation({
+      url: '/api/research/volatility/today/start',
+      stopPolling: stopTodayPolling,
+      fetchLatest: pollTodayStatus,
+      setTriggerDropped: setTodayTriggerDropped,
+      setError: setTodayError,
+    });
+    if (!result.ok) return;
+    setTodayStatus(result.data as TodayScanStatus);
+    stopTodayPolling();
+    todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
   };
 
   // --- Volatility-indicator fetch/poll/trigger ---
@@ -716,33 +661,16 @@ export default function VolatilityResearchPage() {
 
     setIndicatorError('');
     setIndicatorTriggerDropped(false);
-    try {
-      const response = await fetch(
-        `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
-        { method: 'POST' },
-      );
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh({
-            stopPolling: stopIndicatorPolling,
-            fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-            setTriggerDropped: setIndicatorTriggerDropped,
-          });
-          return;
-        }
-        setIndicatorError(data?.error || `Server returned status ${response.status}`);
-        return;
-      }
-      stopIndicatorPolling();
-      fetchIndicatorResult(indicatorThreshold);
-    } catch {
-      fallBackToPassiveRefresh({
-        stopPolling: stopIndicatorPolling,
-        fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-        setTriggerDropped: setIndicatorTriggerDropped,
-      });
-    }
+    const result = await runBackendAwareMutation({
+      url: `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
+      stopPolling: stopIndicatorPolling,
+      fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+      setTriggerDropped: setIndicatorTriggerDropped,
+      setError: setIndicatorError,
+    });
+    if (!result.ok) return;
+    stopIndicatorPolling();
+    fetchIndicatorResult(indicatorThreshold);
   };
 
   // Separate from handleIndicatorRefresh above - same "Refresh is always
@@ -752,30 +680,16 @@ export default function VolatilityResearchPage() {
   const handleIndicatorRetry = async () => {
     setIndicatorError('');
     setIndicatorTriggerDropped(false);
-    try {
-      const response = await fetch('/api/research/volatility/indicator/retry', { method: 'POST' });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh({
-            stopPolling: stopIndicatorPolling,
-            fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-            setTriggerDropped: setIndicatorTriggerDropped,
-          });
-          return;
-        }
-        setIndicatorError(data?.error || `Server returned status ${response.status}`);
-        return;
-      }
-      stopIndicatorPolling();
-      fetchIndicatorResult(indicatorThreshold);
-    } catch {
-      fallBackToPassiveRefresh({
-        stopPolling: stopIndicatorPolling,
-        fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-        setTriggerDropped: setIndicatorTriggerDropped,
-      });
-    }
+    const result = await runBackendAwareMutation({
+      url: '/api/research/volatility/indicator/retry',
+      stopPolling: stopIndicatorPolling,
+      fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+      setTriggerDropped: setIndicatorTriggerDropped,
+      setError: setIndicatorError,
+    });
+    if (!result.ok) return;
+    stopIndicatorPolling();
+    fetchIndicatorResult(indicatorThreshold);
   };
 
   // Rebound fetches once on mount, then polls only if a scan turns out to

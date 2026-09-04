@@ -4,6 +4,7 @@ import {
   scheduleBackendRetry,
   fallBackToPassiveRefresh,
   runBackendAwareFetch,
+  runBackendAwareMutation,
 } from '@/lib/backendAwareFetch';
 
 describe('isBackendUnavailableStatus', () => {
@@ -216,5 +217,74 @@ describe('runBackendAwareFetch', () => {
 
     expect(deps.setError).toHaveBeenCalledWith('unreachable');
     expect(deps.stopPolling).toHaveBeenCalled();
+  });
+});
+
+describe('runBackendAwareMutation', () => {
+  function makeDeps() {
+    return {
+      stopPolling: vi.fn(),
+      fetchLatest: vi.fn(),
+      setTriggerDropped: vi.fn(),
+      setError: vi.fn(),
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('on success, returns the parsed body without touching error/fallback state', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true }), { status: 200 })));
+    const deps = makeDeps();
+
+    const result = await runBackendAwareMutation({ url: '/api/x', ...deps });
+
+    expect(result).toEqual({ ok: true, data: { started: true } });
+    expect(deps.setError).not.toHaveBeenCalled();
+    expect(deps.setTriggerDropped).not.toHaveBeenCalled();
+    expect(deps.stopPolling).not.toHaveBeenCalled();
+    expect(deps.fetchLatest).not.toHaveBeenCalled();
+  });
+
+  it('on a non-retryable error status, sets the server error message and does not fall back', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'bad request' }), { status: 400 })),
+    );
+    const deps = makeDeps();
+
+    const result = await runBackendAwareMutation({ url: '/api/x', ...deps });
+
+    expect(result).toEqual({ ok: false });
+    expect(deps.setError).toHaveBeenCalledWith('bad request');
+    expect(deps.fetchLatest).not.toHaveBeenCalled();
+    expect(deps.setTriggerDropped).not.toHaveBeenCalled();
+  });
+
+  it('on a backend-unavailable status, falls back to the passive refresh instead of erroring', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(null), { status: 503 })));
+    const deps = makeDeps();
+
+    const result = await runBackendAwareMutation({ url: '/api/x', ...deps });
+
+    expect(result).toEqual({ ok: false });
+    expect(deps.setError).not.toHaveBeenCalled();
+    expect(deps.setTriggerDropped).toHaveBeenCalledWith(true);
+    expect(deps.stopPolling).toHaveBeenCalled();
+    expect(deps.fetchLatest).toHaveBeenCalled();
+  });
+
+  it('on a network failure, falls back to the passive refresh instead of erroring', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    const deps = makeDeps();
+
+    const result = await runBackendAwareMutation({ url: '/api/x', ...deps });
+
+    expect(result).toEqual({ ok: false });
+    expect(deps.setError).not.toHaveBeenCalled();
+    expect(deps.setTriggerDropped).toHaveBeenCalledWith(true);
+    expect(deps.stopPolling).toHaveBeenCalled();
+    expect(deps.fetchLatest).toHaveBeenCalled();
   });
 });
