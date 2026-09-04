@@ -101,11 +101,9 @@ function isBackendUnavailableStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
-// Shared by all three fetch/poll functions' not-ok and catch branches -
-// schedules the next silent retry and flips on the "starting" flag when
-// under the attempt budget, or returns false so the caller falls through
-// to its own (message-specific) hard-error handling. Returning a bool
-// rather than throwing/void keeps each call site a one-line `if`.
+// Shared by all three fetch/poll functions' not-ok and catch branches.
+// Returning a bool rather than throwing/void keeps each call site a
+// one-line `if`.
 function scheduleBackendRetry(
   timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
   setBackendStarting: (starting: boolean) => void,
@@ -118,15 +116,10 @@ function scheduleBackendRetry(
   return true;
 }
 
-// Used by every manual Refresh/Retry handler when its POST itself hits a
-// cold backend: the POST is abandoned (no idempotency machinery to safely
-// retry a state-mutating request against a gateway that may have
-// received-but-not-acked it), and control falls back to the section's own
-// passive fetch/poll loop - which independently retries via
-// scheduleBackendRetry and surfaces BackendStartingNotice once the
-// backend responds. setTriggerDropped flags that the fallback happened,
-// so the caller can tell the user their click didn't land (see
-// RequestNotSentNotice) rather than staying silent about it.
+// The POST itself is abandoned rather than retried - no idempotency
+// machinery to safely retry a state-mutating request against a gateway
+// that may have received-but-not-acked it. See RequestNotSentNotice for
+// the user-facing side of setTriggerDropped.
 function fallBackToPassiveRefresh(
   stopPolling: () => void,
   fetchLatest: () => void,
@@ -439,8 +432,8 @@ function BackendStartingNotice() {
 function RequestNotSentNotice() {
   return (
     <InfoNotice>
-      That request wasn&apos;t sent - the backend was still starting up. Wait for it to come back (see below),
-      then click again.
+      That request may not have gone through - the backend was still starting up. Wait for it to come back
+      (see below), then click again.
     </InfoNotice>
   );
 }
@@ -889,7 +882,7 @@ export default function VolatilityResearchPage() {
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <RefreshButton onClick={handleTodayRefresh} isRunning={isTodayRunning} disabled={isTodayRunning || todayBackendStarting} />
-          {todayStatus.status === 'done' && todayStatus.finished_at && (
+          {!todayBackendStarting && todayStatus.status === 'done' && todayStatus.finished_at && (
             <span style={{ color: '#666', fontSize: '13px' }}>
               Last run: {new Date(todayStatus.finished_at).toLocaleString()} · {todayStatus.universe_size} tickers scanned
             </span>
