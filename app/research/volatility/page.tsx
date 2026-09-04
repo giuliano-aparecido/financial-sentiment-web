@@ -317,6 +317,19 @@ function RefreshButton({
   );
 }
 
+function TickerLink({ ticker }: { ticker: string }) {
+  return (
+    <a
+      href={`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: 'inherit', fontWeight: 'bold', textDecoration: 'underline', textDecorationColor: '#ccc' }}
+    >
+      {ticker}
+    </a>
+  );
+}
+
 function ErrorBanner({ label, message }: { label: string; message: string }) {
   return (
     <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
@@ -710,6 +723,69 @@ export default function VolatilityResearchPage() {
       </div>
 
       <section style={{ marginTop: '28px' }}>
+        <h3 style={{ marginBottom: '4px' }}>Big loss (today)</h3>
+        <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
+          Down 5%+ today, thinnest volume first. Own independent scan - click Refresh to update.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <RefreshButton onClick={handleTodayRefresh} isRunning={isTodayRunning} disabled={isTodayRunning} />
+          {todayStatus.status === 'done' && todayStatus.finished_at && (
+            <span style={{ color: '#666', fontSize: '13px' }}>
+              Last run: {new Date(todayStatus.finished_at).toLocaleString()} · {todayStatus.universe_size} tickers scanned
+            </span>
+          )}
+          {todayStatus.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
+        </div>
+
+        {todayError && <ErrorBanner label="Error" message={todayError} />}
+        {todayStatus.status === 'error' && todayStatus.error && (
+          <ErrorBanner label="Scan failed" message={todayStatus.error} />
+        )}
+
+        {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) === 0 && (
+          <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
+        )}
+        {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) > 0 && (
+          <>
+            <DownloadCsvButton onClick={handleDownloadTodayScreener} />
+            <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+              <thead>
+                <tr>
+                  <SortableHeader label="Ticker" sortKey="ticker" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Name" sortKey="name" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Sector" sortKey="sector" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Market cap" sortKey="market_cap" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Price" sortKey="price" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Change %" sortKey="change_pct" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                  <SortableHeader label="Volume today" sortKey="volume_today" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTodayScreener.map((row, i) => (
+                  <tr key={`${row.ticker}-${i}`}>
+                    <td style={cellStyle}>
+                      <TickerLink ticker={row.ticker} />
+                    </td>
+                    <td style={cellStyle}>{row.name}</td>
+                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
+                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
+                    <td style={cellStyle}>{row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A'}</td>
+                    <td style={{ ...cellStyle, color: row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
+                      {row.change_pct > 0 ? '+' : ''}
+                      {row.change_pct.toFixed(2)}%
+                    </td>
+                    <td style={cellStyle}>{row.volume_today.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      <section style={{ marginTop: '32px' }}>
         <h3 style={{ marginBottom: '4px' }}>Indicator of volatility (12 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Same universe as the other tables below. Shows companies that had AT LEAST ONE trading day closing
@@ -787,7 +863,7 @@ export default function VolatilityResearchPage() {
                 {sortedVolatilityIndicator.map((row, i) => (
                   <tr key={`${row.ticker}-${i}`}>
                     <td style={cellStyle}>
-                      <strong>{row.ticker}</strong>
+                      <TickerLink ticker={row.ticker} />
                     </td>
                     <td style={cellStyle}>{row.name}</td>
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
@@ -885,7 +961,7 @@ export default function VolatilityResearchPage() {
                 {sortedCrashRebound.map((row, i) => (
                   <tr key={`${row.ticker}-${row.loss_date}-${i}`}>
                     <td style={cellStyle}>
-                      <strong>{row.ticker}</strong>
+                      <TickerLink ticker={row.ticker} />
                     </td>
                     <td style={cellStyle}>{row.name}</td>
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
@@ -907,68 +983,6 @@ export default function VolatilityResearchPage() {
         )}
       </section>
 
-      <section style={{ marginTop: '32px' }}>
-        <h3 style={{ marginBottom: '4px' }}>Big loss (today)</h3>
-        <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
-          Down 5%+ today, thinnest volume first. Own independent scan - click Refresh to update.
-        </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <RefreshButton onClick={handleTodayRefresh} isRunning={isTodayRunning} disabled={isTodayRunning} />
-          {todayStatus.status === 'done' && todayStatus.finished_at && (
-            <span style={{ color: '#666', fontSize: '13px' }}>
-              Last run: {new Date(todayStatus.finished_at).toLocaleString()} · {todayStatus.universe_size} tickers scanned
-            </span>
-          )}
-          {todayStatus.status === 'idle' && <span style={{ color: '#666', fontSize: '13px' }}>No scan run yet.</span>}
-        </div>
-
-        {todayError && <ErrorBanner label="Error" message={todayError} />}
-        {todayStatus.status === 'error' && todayStatus.error && (
-          <ErrorBanner label="Scan failed" message={todayStatus.error} />
-        )}
-
-        {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) === 0 && (
-          <p style={{ color: '#666', fontSize: '13px' }}>No matches today.</p>
-        )}
-        {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) > 0 && (
-          <>
-            <DownloadCsvButton onClick={handleDownloadTodayScreener} />
-            <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
-              <thead>
-                <tr>
-                  <SortableHeader label="Ticker" sortKey="ticker" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Name" sortKey="name" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Sector" sortKey="sector" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Market cap" sortKey="market_cap" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Price" sortKey="price" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Change %" sortKey="change_pct" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Volume today" sortKey="volume_today" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTodayScreener.map((row, i) => (
-                  <tr key={`${row.ticker}-${i}`}>
-                    <td style={cellStyle}>
-                      <strong>{row.ticker}</strong>
-                    </td>
-                    <td style={cellStyle}>{row.name}</td>
-                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
-                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
-                    <td style={cellStyle}>{row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A'}</td>
-                    <td style={{ ...cellStyle, color: row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
-                      {row.change_pct > 0 ? '+' : ''}
-                      {row.change_pct.toFixed(2)}%
-                    </td>
-                    <td style={cellStyle}>{row.volume_today.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </>
-        )}
-      </section>
     </main>
   );
 }
