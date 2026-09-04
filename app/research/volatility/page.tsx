@@ -101,7 +101,6 @@ function isBackendUnavailableStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
-// Shared by all three fetch/poll functions' not-ok and catch branches.
 function scheduleBackendRetry({
   timerRef,
   setBackendStarting,
@@ -731,7 +730,7 @@ export default function VolatilityResearchPage() {
       }
       setTodayStatus(data as TodayScanStatus);
       stopTodayPolling();
-      todayPollTimer.current = setTimeout(pollTodayStatus, POLL_INTERVAL_MS);
+      todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
     } catch {
       fallBackToPassiveRefresh({
         stopPolling: stopTodayPolling,
