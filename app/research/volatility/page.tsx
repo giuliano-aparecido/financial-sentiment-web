@@ -102,14 +102,17 @@ function isBackendUnavailableStatus(status: number): boolean {
 }
 
 // Shared by all three fetch/poll functions' not-ok and catch branches.
-// Returning a bool rather than throwing/void keeps each call site a
-// one-line `if`.
-function scheduleBackendRetry(
-  timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
-  setBackendStarting: (starting: boolean) => void,
-  attempt: number,
-  retry: (nextAttempt: number) => void,
-): boolean {
+function scheduleBackendRetry({
+  timerRef,
+  setBackendStarting,
+  attempt,
+  retry,
+}: {
+  timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  setBackendStarting: (starting: boolean) => void;
+  attempt: number;
+  retry: (nextAttempt: number) => void;
+}): boolean {
   if (attempt >= BACKEND_STARTUP_MAX_ATTEMPTS) return false;
   setBackendStarting(true);
   timerRef.current = setTimeout(() => retry(attempt + 1), POLL_INTERVAL_MS);
@@ -120,11 +123,15 @@ function scheduleBackendRetry(
 // machinery to safely retry a state-mutating request against a gateway
 // that may have received-but-not-acked it. See RequestNotSentNotice for
 // the user-facing side of setTriggerDropped.
-function fallBackToPassiveRefresh(
-  stopPolling: () => void,
-  fetchLatest: () => void,
-  setTriggerDropped: (dropped: boolean) => void,
-): void {
+function fallBackToPassiveRefresh({
+  stopPolling,
+  fetchLatest,
+  setTriggerDropped,
+}: {
+  stopPolling: () => void;
+  fetchLatest: () => void;
+  setTriggerDropped: (dropped: boolean) => void;
+}): void {
   setTriggerDropped(true);
   stopPolling();
   fetchLatest();
@@ -531,7 +538,13 @@ export default function VolatilityResearchPage() {
       const response = await fetch('/api/research/volatility/rebound');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(reboundPollTimer, setReboundBackendStarting, attempt, fetchReboundResult)) {
+        const retrying = isBackendUnavailableStatus(response.status) && scheduleBackendRetry({
+          timerRef: reboundPollTimer,
+          setBackendStarting: setReboundBackendStarting,
+          attempt,
+          retry: fetchReboundResult,
+        });
+        if (retrying) {
           return;
         }
         setReboundBackendStarting(false);
@@ -550,7 +563,13 @@ export default function VolatilityResearchPage() {
         stopReboundPolling();
       }
     } catch {
-      if (scheduleBackendRetry(reboundPollTimer, setReboundBackendStarting, attempt, fetchReboundResult)) {
+      const retrying = scheduleBackendRetry({
+        timerRef: reboundPollTimer,
+        setBackendStarting: setReboundBackendStarting,
+        attempt,
+        retry: fetchReboundResult,
+      });
+      if (retrying) {
         return;
       }
       setReboundBackendStarting(false);
@@ -581,7 +600,11 @@ export default function VolatilityResearchPage() {
         // GET it would normally trigger - see fallBackToPassiveRefresh's
         // own comment for why this falls back rather than erroring.
         if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+          fallBackToPassiveRefresh({
+            stopPolling: stopReboundPolling,
+            fetchLatest: fetchReboundResult,
+            setTriggerDropped: setReboundTriggerDropped,
+          });
           return;
         }
         setReboundError(data?.error || `Server returned status ${response.status}`);
@@ -590,7 +613,11 @@ export default function VolatilityResearchPage() {
       stopReboundPolling();
       fetchReboundResult();
     } catch {
-      fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+      fallBackToPassiveRefresh({
+        stopPolling: stopReboundPolling,
+        fetchLatest: fetchReboundResult,
+        setTriggerDropped: setReboundTriggerDropped,
+      });
     }
   };
 
@@ -607,7 +634,11 @@ export default function VolatilityResearchPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+          fallBackToPassiveRefresh({
+            stopPolling: stopReboundPolling,
+            fetchLatest: fetchReboundResult,
+            setTriggerDropped: setReboundTriggerDropped,
+          });
           return;
         }
         setReboundError(data?.error || `Server returned status ${response.status}`);
@@ -616,7 +647,11 @@ export default function VolatilityResearchPage() {
       stopReboundPolling();
       fetchReboundResult();
     } catch {
-      fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+      fallBackToPassiveRefresh({
+        stopPolling: stopReboundPolling,
+        fetchLatest: fetchReboundResult,
+        setTriggerDropped: setReboundTriggerDropped,
+      });
     }
   };
 
@@ -637,7 +672,13 @@ export default function VolatilityResearchPage() {
       const response = await fetch('/api/research/volatility/today/status');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(todayPollTimer, setTodayBackendStarting, attempt, pollTodayStatus)) {
+        const retrying = isBackendUnavailableStatus(response.status) && scheduleBackendRetry({
+          timerRef: todayPollTimer,
+          setBackendStarting: setTodayBackendStarting,
+          attempt,
+          retry: pollTodayStatus,
+        });
+        if (retrying) {
           return;
         }
         setTodayBackendStarting(false);
@@ -654,7 +695,13 @@ export default function VolatilityResearchPage() {
         todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
       }
     } catch {
-      if (scheduleBackendRetry(todayPollTimer, setTodayBackendStarting, attempt, pollTodayStatus)) {
+      const retrying = scheduleBackendRetry({
+        timerRef: todayPollTimer,
+        setBackendStarting: setTodayBackendStarting,
+        attempt,
+        retry: pollTodayStatus,
+      });
+      if (retrying) {
         return;
       }
       setTodayBackendStarting(false);
@@ -672,7 +719,11 @@ export default function VolatilityResearchPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh(stopTodayPolling, pollTodayStatus, setTodayTriggerDropped);
+          fallBackToPassiveRefresh({
+            stopPolling: stopTodayPolling,
+            fetchLatest: pollTodayStatus,
+            setTriggerDropped: setTodayTriggerDropped,
+          });
           return;
         }
         setTodayError(data?.error || `Server returned status ${response.status}`);
@@ -682,7 +733,11 @@ export default function VolatilityResearchPage() {
       stopTodayPolling();
       todayPollTimer.current = setTimeout(pollTodayStatus, POLL_INTERVAL_MS);
     } catch {
-      fallBackToPassiveRefresh(stopTodayPolling, pollTodayStatus, setTodayTriggerDropped);
+      fallBackToPassiveRefresh({
+        stopPolling: stopTodayPolling,
+        fetchLatest: pollTodayStatus,
+        setTriggerDropped: setTodayTriggerDropped,
+      });
     }
   };
 
@@ -707,7 +762,13 @@ export default function VolatilityResearchPage() {
       const response = await fetch(`/api/research/volatility/indicator?threshold_pct=${thresholdPct}`);
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(indicatorPollTimer, setIndicatorBackendStarting, attempt, (next) => fetchIndicatorResult(thresholdPct, next))) {
+        const retrying = isBackendUnavailableStatus(response.status) && scheduleBackendRetry({
+          timerRef: indicatorPollTimer,
+          setBackendStarting: setIndicatorBackendStarting,
+          attempt,
+          retry: (next) => fetchIndicatorResult(thresholdPct, next),
+        });
+        if (retrying) {
           return;
         }
         setIndicatorBackendStarting(false);
@@ -726,7 +787,13 @@ export default function VolatilityResearchPage() {
         stopIndicatorPolling();
       }
     } catch {
-      if (scheduleBackendRetry(indicatorPollTimer, setIndicatorBackendStarting, attempt, (next) => fetchIndicatorResult(thresholdPct, next))) {
+      const retrying = scheduleBackendRetry({
+        timerRef: indicatorPollTimer,
+        setBackendStarting: setIndicatorBackendStarting,
+        attempt,
+        retry: (next) => fetchIndicatorResult(thresholdPct, next),
+      });
+      if (retrying) {
         return;
       }
       setIndicatorBackendStarting(false);
@@ -757,7 +824,11 @@ export default function VolatilityResearchPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+          fallBackToPassiveRefresh({
+            stopPolling: stopIndicatorPolling,
+            fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+            setTriggerDropped: setIndicatorTriggerDropped,
+          });
           return;
         }
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
@@ -766,7 +837,11 @@ export default function VolatilityResearchPage() {
       stopIndicatorPolling();
       fetchIndicatorResult(indicatorThreshold);
     } catch {
-      fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+      fallBackToPassiveRefresh({
+        stopPolling: stopIndicatorPolling,
+        fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+        setTriggerDropped: setIndicatorTriggerDropped,
+      });
     }
   };
 
@@ -782,7 +857,11 @@ export default function VolatilityResearchPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         if (isBackendUnavailableStatus(response.status)) {
-          fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+          fallBackToPassiveRefresh({
+            stopPolling: stopIndicatorPolling,
+            fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+            setTriggerDropped: setIndicatorTriggerDropped,
+          });
           return;
         }
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
@@ -791,7 +870,11 @@ export default function VolatilityResearchPage() {
       stopIndicatorPolling();
       fetchIndicatorResult(indicatorThreshold);
     } catch {
-      fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+      fallBackToPassiveRefresh({
+        stopPolling: stopIndicatorPolling,
+        fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
+        setTriggerDropped: setIndicatorTriggerDropped,
+      });
     }
   };
 
