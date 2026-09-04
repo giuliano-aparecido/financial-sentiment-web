@@ -101,6 +101,42 @@ function isBackendUnavailableStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+// Shared by all three fetch/poll functions' not-ok and catch branches -
+// schedules the next silent retry and flips on the "starting" flag when
+// under the attempt budget, or returns false so the caller falls through
+// to its own (message-specific) hard-error handling. Returning a bool
+// rather than throwing/void keeps each call site a one-line `if`.
+function scheduleBackendRetry(
+  timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  setBackendStarting: (starting: boolean) => void,
+  attempt: number,
+  retry: (nextAttempt: number) => void,
+): boolean {
+  if (attempt >= BACKEND_STARTUP_MAX_ATTEMPTS) return false;
+  setBackendStarting(true);
+  timerRef.current = setTimeout(() => retry(attempt + 1), POLL_INTERVAL_MS);
+  return true;
+}
+
+// Used by every manual Refresh/Retry handler when its POST itself hits a
+// cold backend: the POST is abandoned (no idempotency machinery to safely
+// retry a state-mutating request against a gateway that may have
+// received-but-not-acked it), and control falls back to the section's own
+// passive fetch/poll loop - which independently retries via
+// scheduleBackendRetry and surfaces BackendStartingNotice once the
+// backend responds. setTriggerDropped flags that the fallback happened,
+// so the caller can tell the user their click didn't land (see
+// RequestNotSentNotice) rather than staying silent about it.
+function fallBackToPassiveRefresh(
+  stopPolling: () => void,
+  fetchLatest: () => void,
+  setTriggerDropped: (dropped: boolean) => void,
+): void {
+  setTriggerDropped(true);
+  stopPolling();
+  fetchLatest();
+}
+
 function formatMarketCap(value: number | null): string {
   if (value == null) return 'N/A';
   if (value >= 1e9) return `CHF ${(value / 1e9).toFixed(2)}B`;
@@ -394,6 +430,21 @@ function BackendStartingNotice() {
   );
 }
 
+// Shown after a manual Refresh/Retry click hits a cold backend (see
+// BackendStartingNotice's own comment) - unlike that passive notice,
+// nothing here is retrying the click itself, only the read that fetches
+// the last known result (see fallBackToPassiveRefresh's own comment) - so
+// this says so explicitly instead of reusing BackendStartingNotice's
+// "Retrying automatically…", which would be false for this path.
+function RequestNotSentNotice() {
+  return (
+    <InfoNotice>
+      That request wasn&apos;t sent - the backend was still starting up. Wait for it to come back (see below),
+      then click again.
+    </InfoNotice>
+  );
+}
+
 // Shown when the last completed scan couldn't fetch every ticker (e.g.
 // Yahoo rate-limiting mid-scan) - the table below is real but incomplete,
 // not a display bug. Refresh only retries these specific tickers rather
@@ -427,6 +478,7 @@ export default function VolatilityResearchPage() {
   const [reboundLoading, setReboundLoading] = useState(true);
   const [reboundError, setReboundError] = useState('');
   const [reboundBackendStarting, setReboundBackendStarting] = useState(false);
+  const [reboundTriggerDropped, setReboundTriggerDropped] = useState(false);
   const reboundPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [crashSort, setCrashSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedCrashRebound = useMemo(
@@ -439,6 +491,7 @@ export default function VolatilityResearchPage() {
   const [todayStatus, setTodayStatus] = useState<TodayScanStatus>({ status: 'idle' });
   const [todayError, setTodayError] = useState('');
   const [todayBackendStarting, setTodayBackendStarting] = useState(false);
+  const [todayTriggerDropped, setTodayTriggerDropped] = useState(false);
   const todayPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [todaySort, setTodaySort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedTodayScreener = useMemo(
@@ -454,6 +507,7 @@ export default function VolatilityResearchPage() {
   const [indicatorLoading, setIndicatorLoading] = useState(true);
   const [indicatorError, setIndicatorError] = useState('');
   const [indicatorBackendStarting, setIndicatorBackendStarting] = useState(false);
+  const [indicatorTriggerDropped, setIndicatorTriggerDropped] = useState(false);
   const [indicatorThreshold, setIndicatorThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
   const indicatorPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [indicatorSort, setIndicatorSort] = useState<SortState>({ key: null, direction: 'asc' });
@@ -484,17 +538,17 @@ export default function VolatilityResearchPage() {
       const response = await fetch('/api/research/volatility/rebound');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-          setReboundBackendStarting(true);
-          reboundPollTimer.current = setTimeout(() => fetchReboundResult(attempt + 1), POLL_INTERVAL_MS);
+        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(reboundPollTimer, setReboundBackendStarting, attempt, fetchReboundResult)) {
           return;
         }
         setReboundBackendStarting(false);
+        setReboundTriggerDropped(false);
         setReboundError(data?.error || `Server returned status ${response.status}`);
         stopReboundPolling();
         return;
       }
       setReboundBackendStarting(false);
+      setReboundTriggerDropped(false);
       const parsed = data as ReboundScanResult;
       setReboundResult(parsed);
       if (parsed.is_running) {
@@ -503,12 +557,11 @@ export default function VolatilityResearchPage() {
         stopReboundPolling();
       }
     } catch {
-      if (attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-        setReboundBackendStarting(true);
-        reboundPollTimer.current = setTimeout(() => fetchReboundResult(attempt + 1), POLL_INTERVAL_MS);
+      if (scheduleBackendRetry(reboundPollTimer, setReboundBackendStarting, attempt, fetchReboundResult)) {
         return;
       }
       setReboundBackendStarting(false);
+      setReboundTriggerDropped(false);
       setReboundError('Failed to reach the research backend.');
       stopReboundPolling();
     } finally {
@@ -526,17 +579,25 @@ export default function VolatilityResearchPage() {
     if (!confirmed) return;
 
     setReboundError('');
+    setReboundTriggerDropped(false);
     try {
       const response = await fetch('/api/research/volatility/rebound/start', { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        // A cold backend can fail the POST itself, not just the polling
+        // GET it would normally trigger - see fallBackToPassiveRefresh's
+        // own comment for why this falls back rather than erroring.
+        if (isBackendUnavailableStatus(response.status)) {
+          fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+          return;
+        }
         setReboundError(data?.error || `Server returned status ${response.status}`);
         return;
       }
       stopReboundPolling();
       fetchReboundResult();
     } catch {
-      setReboundError('Failed to reach the research backend.');
+      fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
     }
   };
 
@@ -547,17 +608,22 @@ export default function VolatilityResearchPage() {
   // universe), unlike a full scan.
   const handleReboundRetry = async () => {
     setReboundError('');
+    setReboundTriggerDropped(false);
     try {
       const response = await fetch('/api/research/volatility/rebound/retry', { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        if (isBackendUnavailableStatus(response.status)) {
+          fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
+          return;
+        }
         setReboundError(data?.error || `Server returned status ${response.status}`);
         return;
       }
       stopReboundPolling();
       fetchReboundResult();
     } catch {
-      setReboundError('Failed to reach the research backend.');
+      fallBackToPassiveRefresh(stopReboundPolling, fetchReboundResult, setReboundTriggerDropped);
     }
   };
 
@@ -578,29 +644,28 @@ export default function VolatilityResearchPage() {
       const response = await fetch('/api/research/volatility/today/status');
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-          setTodayBackendStarting(true);
-          todayPollTimer.current = setTimeout(() => pollTodayStatus(attempt + 1), POLL_INTERVAL_MS);
+        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(todayPollTimer, setTodayBackendStarting, attempt, pollTodayStatus)) {
           return;
         }
         setTodayBackendStarting(false);
+        setTodayTriggerDropped(false);
         setTodayError(data?.error || `Server returned status ${response.status}`);
         stopTodayPolling();
         return;
       }
       setTodayBackendStarting(false);
+      setTodayTriggerDropped(false);
       const parsed = data as TodayScanStatus;
       setTodayStatus(parsed);
       if (parsed.status === 'running') {
         todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
       }
     } catch {
-      if (attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-        setTodayBackendStarting(true);
-        todayPollTimer.current = setTimeout(() => pollTodayStatus(attempt + 1), POLL_INTERVAL_MS);
+      if (scheduleBackendRetry(todayPollTimer, setTodayBackendStarting, attempt, pollTodayStatus)) {
         return;
       }
       setTodayBackendStarting(false);
+      setTodayTriggerDropped(false);
       setTodayError('Lost connection while checking scan status.');
       stopTodayPolling();
     }
@@ -608,10 +673,15 @@ export default function VolatilityResearchPage() {
 
   const handleTodayRefresh = async () => {
     setTodayError('');
+    setTodayTriggerDropped(false);
     try {
       const response = await fetch('/api/research/volatility/today/start', { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        if (isBackendUnavailableStatus(response.status)) {
+          fallBackToPassiveRefresh(stopTodayPolling, pollTodayStatus, setTodayTriggerDropped);
+          return;
+        }
         setTodayError(data?.error || `Server returned status ${response.status}`);
         return;
       }
@@ -619,7 +689,7 @@ export default function VolatilityResearchPage() {
       stopTodayPolling();
       todayPollTimer.current = setTimeout(pollTodayStatus, POLL_INTERVAL_MS);
     } catch {
-      setTodayError('Failed to reach the research backend.');
+      fallBackToPassiveRefresh(stopTodayPolling, pollTodayStatus, setTodayTriggerDropped);
     }
   };
 
@@ -644,17 +714,17 @@ export default function VolatilityResearchPage() {
       const response = await fetch(`/api/research/volatility/indicator?threshold_pct=${thresholdPct}`);
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        if (isBackendUnavailableStatus(response.status) && attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-          setIndicatorBackendStarting(true);
-          indicatorPollTimer.current = setTimeout(() => fetchIndicatorResult(thresholdPct, attempt + 1), POLL_INTERVAL_MS);
+        if (isBackendUnavailableStatus(response.status) && scheduleBackendRetry(indicatorPollTimer, setIndicatorBackendStarting, attempt, (next) => fetchIndicatorResult(thresholdPct, next))) {
           return;
         }
         setIndicatorBackendStarting(false);
+        setIndicatorTriggerDropped(false);
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
         stopIndicatorPolling();
         return;
       }
       setIndicatorBackendStarting(false);
+      setIndicatorTriggerDropped(false);
       const parsed = data as IndicatorScanResult;
       setIndicatorResult(parsed);
       if (parsed.is_running) {
@@ -663,12 +733,11 @@ export default function VolatilityResearchPage() {
         stopIndicatorPolling();
       }
     } catch {
-      if (attempt < BACKEND_STARTUP_MAX_ATTEMPTS) {
-        setIndicatorBackendStarting(true);
-        indicatorPollTimer.current = setTimeout(() => fetchIndicatorResult(thresholdPct, attempt + 1), POLL_INTERVAL_MS);
+      if (scheduleBackendRetry(indicatorPollTimer, setIndicatorBackendStarting, attempt, (next) => fetchIndicatorResult(thresholdPct, next))) {
         return;
       }
       setIndicatorBackendStarting(false);
+      setIndicatorTriggerDropped(false);
       setIndicatorError('Failed to reach the research backend.');
       stopIndicatorPolling();
     } finally {
@@ -686,6 +755,7 @@ export default function VolatilityResearchPage() {
     if (!confirmed) return;
 
     setIndicatorError('');
+    setIndicatorTriggerDropped(false);
     try {
       const response = await fetch(
         `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
@@ -693,13 +763,17 @@ export default function VolatilityResearchPage() {
       );
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        if (isBackendUnavailableStatus(response.status)) {
+          fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+          return;
+        }
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
         return;
       }
       stopIndicatorPolling();
       fetchIndicatorResult(indicatorThreshold);
     } catch {
-      setIndicatorError('Failed to reach the research backend.');
+      fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
     }
   };
 
@@ -709,17 +783,22 @@ export default function VolatilityResearchPage() {
   // threshold_pct needed - see the /retry route's own comment).
   const handleIndicatorRetry = async () => {
     setIndicatorError('');
+    setIndicatorTriggerDropped(false);
     try {
       const response = await fetch('/api/research/volatility/indicator/retry', { method: 'POST' });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
+        if (isBackendUnavailableStatus(response.status)) {
+          fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
+          return;
+        }
         setIndicatorError(data?.error || `Server returned status ${response.status}`);
         return;
       }
       stopIndicatorPolling();
       fetchIndicatorResult(indicatorThreshold);
     } catch {
-      setIndicatorError('Failed to reach the research backend.');
+      fallBackToPassiveRefresh(stopIndicatorPolling, () => fetchIndicatorResult(indicatorThreshold), setIndicatorTriggerDropped);
     }
   };
 
@@ -821,6 +900,7 @@ export default function VolatilityResearchPage() {
           )}
         </div>
 
+        {todayTriggerDropped && <RequestNotSentNotice />}
         {todayBackendStarting && <BackendStartingNotice />}
         {todayError && <ErrorBanner label="Error" message={todayError} />}
         {todayStatus.status === 'error' && todayStatus.error && (
@@ -918,6 +998,7 @@ export default function VolatilityResearchPage() {
           )}
         </div>
 
+        {indicatorTriggerDropped && <RequestNotSentNotice />}
         {indicatorBackendStarting && <BackendStartingNotice />}
         {indicatorError && <ErrorBanner label="Error" message={indicatorError} />}
 
@@ -1000,6 +1081,7 @@ export default function VolatilityResearchPage() {
           )}
         </div>
 
+        {reboundTriggerDropped && <RequestNotSentNotice />}
         {reboundBackendStarting && <BackendStartingNotice />}
         {reboundError && <ErrorBanner label="Error" message={reboundError} />}
 
