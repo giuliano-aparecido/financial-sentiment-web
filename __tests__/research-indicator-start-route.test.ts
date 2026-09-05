@@ -67,6 +67,18 @@ describe('POST /api/research/volatility/indicator/start', () => {
     expect(response.status).toBe(400);
   });
 
+  it('passes through the upstream error status and message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'busy' }), { status: 503 })),
+    );
+    const { POST } = await import('../app/api/research/volatility/indicator/start/route');
+    const response = await POST(makeRequest('?threshold_pct=2'));
+    expect(response.status).toBe(503);
+    const data = await response.json();
+    expect(data.error).toBe('busy');
+  });
+
   it('forwards the threshold_pct to the backend and returns its result', async () => {
     const fakeResult = { status: 'running' };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(fakeResult), { status: 200 }));

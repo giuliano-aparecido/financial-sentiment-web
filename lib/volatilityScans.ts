@@ -207,6 +207,25 @@ export function toggleSort(current: SortState, key: string): SortState {
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
 }
 
+// Shared by all three scan hooks: a cancellable poll loop needs both a
+// timer (for the next scheduled tick) and an AbortController (for the
+// in-flight request itself) cleared together, or a stale timer/request
+// from before a stop could still fire/resolve after the caller moved on.
+function usePollController() {
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortController = useRef<AbortController | null>(null);
+
+  const stopPolling = () => {
+    if (pollTimer.current) {
+      clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+    }
+    abortController.current?.abort();
+  };
+
+  return { pollTimer, abortController, stopPolling };
+}
+
 // Fetches the current result and, if a scan is running (started by the
 // cron OR by handleRefresh below - indistinguishable and that's the
 // point, see ReboundScanResult's own comment), keeps polling every 5s
@@ -220,18 +239,9 @@ export function useReboundScan() {
   const [error, setError] = useState('');
   const [backendStarting, setBackendStarting] = useState(false);
   const [triggerDropped, setTriggerDropped] = useState(false);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortController = useRef<AbortController | null>(null);
+  const { pollTimer, abortController, stopPolling } = usePollController();
   const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedRows = useMemo(() => sortRows(result.rows, sort), [result.rows, sort]);
-
-  const stopPolling = () => {
-    if (pollTimer.current) {
-      clearTimeout(pollTimer.current);
-      pollTimer.current = null;
-    }
-    abortController.current?.abort();
-  };
 
   const fetchResult = async (attempt = 0): Promise<void> => {
     try {
@@ -325,19 +335,10 @@ export function useTodayScan() {
   const [error, setError] = useState('');
   const [backendStarting, setBackendStarting] = useState(false);
   const [triggerDropped, setTriggerDropped] = useState(false);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortController = useRef<AbortController | null>(null);
+  const { pollTimer, abortController, stopPolling } = usePollController();
   const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedRows = useMemo(() => sortRows(status.today_screener ?? [], sort), [status.today_screener, sort]);
   const isRunning = status.status === 'running';
-
-  const stopPolling = () => {
-    if (pollTimer.current) {
-      clearTimeout(pollTimer.current);
-      pollTimer.current = null;
-    }
-    abortController.current?.abort();
-  };
 
   // `attempt` only counts consecutive backend-unavailable responses (see
   // BackendStartingNotice) - a healthy response resets it, so a
@@ -377,9 +378,8 @@ export function useTodayScan() {
       setError,
     });
     if (!outcome.ok) return;
-    setStatus(outcome.data as TodayScanStatus);
     stopPolling();
-    pollTimer.current = setTimeout(() => pollStatus(), POLL_INTERVAL_MS);
+    pollStatus();
   };
 
   const handleDownload = () => {
@@ -403,18 +403,9 @@ export function useIndicatorScan() {
   const [backendStarting, setBackendStarting] = useState(false);
   const [triggerDropped, setTriggerDropped] = useState(false);
   const [threshold, setThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortController = useRef<AbortController | null>(null);
+  const { pollTimer, abortController, stopPolling } = usePollController();
   const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedRows = useMemo(() => sortRows(result.rows, sort), [result.rows, sort]);
-
-  const stopPolling = () => {
-    if (pollTimer.current) {
-      clearTimeout(pollTimer.current);
-      pollTimer.current = null;
-    }
-    abortController.current?.abort();
-  };
 
   // Same shape as useReboundScan's fetchResult above - polls while
   // is_running, whether that run was started by the cron or by

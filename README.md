@@ -48,6 +48,10 @@ lib/backendProxy.ts             Shared session/allowlist/rate-limit guard
                                 reaches the browser bundle
 lib/backendAwareFetch.ts        Shared cold-start retry logic for the
                                 volatility page's polling/refresh flows
+lib/volatilityScans.ts          Row/result/status types, the three
+                                per-table scan hooks (fetch/poll/
+                                refresh/retry), and CSV export helpers
+                                for the volatility page
 lib/rateLimit.ts                Best-effort per-user rate limit on the proxy
                                 routes - parameterized (window/max) so the
                                 research routes can use a stricter/looser

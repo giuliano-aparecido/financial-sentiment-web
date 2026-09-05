@@ -17,8 +17,8 @@ const MAX_QUERY_LENGTH = 2000;
 
 export async function POST(request: NextRequest) {
   // No keyPrefix: this route intentionally shares the default rate-limit
-  // bucket (session email alone), kept separate from the "research:"-
-  // prefixed bucket the volatility routes use - see lib/rateLimit.ts.
+  // bucket (session email alone), kept separate from each volatility
+  // route's own "research-*"-prefixed bucket - see lib/rateLimit.ts.
   const guard = await guardBackendRequest({ isAllowed: isAllowedEmail, rateLimit: {} });
   if (guard instanceof NextResponse) return guard;
 
