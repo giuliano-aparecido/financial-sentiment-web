@@ -23,21 +23,31 @@ doing it properly, not because it needs to scale or handle real traffic.
 ```
 app/
   page.tsx                    The main page: query box, results
-  research/volatility/page.tsx  Swiss volatility research page - Refresh
-                                button, two result tables (see below)
+  research/volatility/page.tsx  Swiss volatility research page - three
+                                tables (indicator/rebound/today), each
+                                with its own Refresh button (see below)
   login/page.tsx               Sign-in page (Google OAuth in production)
-  api/analyze/route.ts          Server-side proxy to the RAG API - the
-                                only place RAG_API_KEY is ever read, so
-                                it never reaches the browser bundle
-  api/research/volatility/start/route.ts    Kicks off the volatility scan
-                                (proxies to the RAG API's background-job
-                                endpoint - see financial-sentiment-api's
-                                app/services/research_job.py)
-  api/research/volatility/status/route.ts   Polled by the page while a
-                                scan runs
+  api/analyze/route.ts          Server-side proxy to the RAG API
+  api/research/volatility/indicator/{route,start,status,retry}.ts
+                                Volatility-indicator table: route.ts reads
+                                the latest scheduled scan, start/status
+                                drive a manual Refresh, retry re-fetches
+                                just the tickers that failed
+  api/research/volatility/rebound/{route,start,status,retry}.ts
+                                Crash-rebound table, same route shape
+  api/research/volatility/today/{start,status}.ts
+                                Big-loss-today table - always live/
+                                on-demand, no separate scheduled-read route
   api/auth/[...nextauth]/route.ts   NextAuth handler
 components/SessionProvider.tsx  NextAuth session context + idle-logout
 lib/auth.ts                     NextAuth config (allowlist, dev bypass)
+lib/backendProxy.ts             Shared session/allowlist/rate-limit guard
+                                and upstream-fetch/error-mapping helpers
+                                used by every route above - the only place
+                                RAG_API_KEY is ever read, so it never
+                                reaches the browser bundle
+lib/backendAwareFetch.ts        Shared cold-start retry logic for the
+                                volatility page's polling/refresh flows
 lib/rateLimit.ts                Best-effort per-user rate limit on the proxy
                                 routes - parameterized (window/max) so the
                                 research routes can use a stricter/looser
@@ -49,15 +59,20 @@ proxy.ts                        Page-level route protection (was
                                 renamed the convention)
 ```
 
-**Swiss volatility research page** (`/research/volatility`): runs
-two Python scans on the RAG API backend (which already runs yfinance in
-production - this Next.js app is deployed on Vercel serverless functions,
-which can't run a 1-3 minute, ~150+ network-call Python script at all, no
-Python runtime and execution time caps far below that). Since a scan takes
-too long for a single request/response, the start route kicks off a
-background job on the backend and returns immediately; the page polls the
-status route every 5s until it's done. Reuses `RAG_API_URL`/`RAG_API_KEY` -
-same backend, same shared secret, no separate env vars needed.
+**Swiss volatility research page** (`/research/volatility`): runs Python
+scans on the RAG API backend (which already runs yfinance in production -
+this Next.js app is deployed on Vercel serverless functions, which can't
+run a 1-3 minute, ~150+ network-call Python script at all, no Python
+runtime and execution time caps far below that). The indicator/rebound
+tables are scanned on a schedule by the backend itself and this app just
+reads the latest result, with a manual Refresh that triggers an early
+scan; the today table is always live/on-demand. Since a live scan takes
+too long for a single request/response, its start route kicks off a
+background job on the backend and returns immediately, and the page polls
+the corresponding status route every 5s until it's done - see
+`lib/backendAwareFetch.ts` for the shared retry-through-cold-start logic
+behind that polling. Reuses `RAG_API_URL`/`RAG_API_KEY` - same backend,
+same shared secret, no separate env vars needed.
 
 `page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
 `valuation`/`earnings` fields (the "analyst pipeline" expansion - see the
@@ -67,10 +82,11 @@ the UI degrades gracefully both against the current API (which doesn't
 send these yet) and against a future one where only some of them fetched
 successfully.
 
-Every request to the RAG API goes through `app/api/analyze/route.ts`,
-never directly from the browser — that's the one place `RAG_API_URL`/
-`RAG_API_KEY` are read, so the shared secret never reaches client-side
-JS. The route also re-checks the session server-side (defense in depth:
+A query goes through `app/api/analyze/route.ts`, never directly from the
+browser to the RAG API — `lib/backendProxy.ts` (shared by every proxy
+route, not just this one) is where `RAG_API_URL`/`RAG_API_KEY` are
+actually read, so the shared secret never reaches client-side JS. The
+route also re-checks the session server-side (defense in depth:
 `proxy.ts`'s matcher is what actually gates this today, but a careless
 regex edit there shouldn't be able to silently expose an endpoint that
 spends paid inference quota), validates/caps the request body, and

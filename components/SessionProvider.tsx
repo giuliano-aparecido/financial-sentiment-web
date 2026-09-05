@@ -8,6 +8,10 @@ import { signOutToLogin } from '@/lib/signOutToLogin';
 // enough not to interrupt someone reading a long analysis, but short enough
 // that a walked-away, still-open tab doesn't stay signed in indefinitely.
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+// mousemove fires far more often than this timeout needs sub-second
+// precision for - throttling avoids a localStorage write pair plus a
+// clearTimeout/setTimeout on every tick of mouse motion.
+const ACTIVITY_THROTTLE_MS = 1000;
 const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const;
 const STORAGE_KEY = 'idleLogout:lastActivityAt';
 // Tracks which session's `expires` value STORAGE_KEY's timestamp was
@@ -18,6 +22,7 @@ const SESSION_MARKER_KEY = 'idleLogout:sessionExpires';
 function IdleLogoutWatcher() {
   const { data: session } = useSession();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRecordedAtRef = useRef(0);
 
   useEffect(() => {
     if (!session) return;
@@ -76,7 +81,10 @@ function IdleLogoutWatcher() {
     };
 
     const recordActivity = () => {
-      localStorage.setItem(STORAGE_KEY, String(Date.now()));
+      const now = Date.now();
+      if (now - lastRecordedAtRef.current < ACTIVITY_THROTTLE_MS) return;
+      lastRecordedAtRef.current = now;
+      localStorage.setItem(STORAGE_KEY, String(now));
       localStorage.setItem(SESSION_MARKER_KEY, session.expires);
       scheduleFromLastActivity();
     };

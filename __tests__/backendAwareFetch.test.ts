@@ -93,6 +93,7 @@ describe('runBackendAwareFetch', () => {
   function makeDeps() {
     return {
       timerRef: { current: null as ReturnType<typeof setTimeout> | null },
+      abortControllerRef: { current: null as AbortController | null },
       setBackendStarting: vi.fn(),
       setTriggerDropped: vi.fn(),
       setError: vi.fn(),
@@ -217,6 +218,51 @@ describe('runBackendAwareFetch', () => {
 
     expect(deps.setError).toHaveBeenCalledWith('unreachable');
     expect(deps.stopPolling).toHaveBeenCalled();
+  });
+
+  it('ignores a stale response from a request a newer call has superseded', async () => {
+    const deps = makeDeps();
+    let resolveFirst!: (r: Response) => void;
+    const firstResponse = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    let resolveSecond!: (r: Response) => void;
+    const secondResponse = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(firstResponse).mockReturnValueOnce(secondResponse));
+
+    const commonArgs = { url: '/api/x', attempt: 0, ...deps, networkErrorMessage: 'unreachable', pollIntervalMs: 5000, maxAttempts: 24 };
+
+    const firstCall = runBackendAwareFetch(commonArgs);
+    await Promise.resolve(); // let the first call install its own AbortController before the second starts
+
+    const secondCall = runBackendAwareFetch(commonArgs);
+    await Promise.resolve(); // let the second call abort/supersede the first's controller
+
+    // The stale (first) request resolves after being superseded - its result must be ignored.
+    resolveFirst(new Response(JSON.stringify({ which: 'first' }), { status: 200 }));
+    await firstCall;
+    expect(deps.onSuccess).not.toHaveBeenCalled();
+
+    resolveSecond(new Response(JSON.stringify({ which: 'second' }), { status: 200 }));
+    await secondCall;
+    expect(deps.onSuccess).toHaveBeenCalledTimes(1);
+    expect(deps.onSuccess).toHaveBeenCalledWith({ which: 'second' });
+  });
+
+  it('silently ignores an AbortError instead of treating it as a network failure', async () => {
+    const deps = makeDeps();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+
+    await runBackendAwareFetch({
+      url: '/api/x',
+      attempt: 0,
+      ...deps,
+      networkErrorMessage: 'unreachable',
+      pollIntervalMs: 5000,
+      maxAttempts: 24,
+    });
+
+    expect(deps.setError).not.toHaveBeenCalledWith('unreachable');
+    expect(deps.setBackendStarting).not.toHaveBeenCalledWith(true);
+    expect(deps.stopPolling).not.toHaveBeenCalled();
   });
 });
 
