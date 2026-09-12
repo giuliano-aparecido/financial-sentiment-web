@@ -47,6 +47,7 @@ interface RunBackendAwareFetchOptions {
   url: string;
   attempt: number;
   timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  abortControllerRef: MutableRefObject<AbortController | null>;
   setBackendStarting: (starting: boolean) => void;
   setTriggerDropped: (dropped: boolean) => void;
   setError: (error: string) => void;
@@ -58,10 +59,19 @@ interface RunBackendAwareFetchOptions {
   maxAttempts: number;
 }
 
+// abortControllerRef makes each call supersede whatever it started: a
+// newer fetch for the same ref (e.g. switching the indicator threshold,
+// or double-clicking Refresh) aborts the previous one's actual network
+// request and, via the `abortControllerRef.current !== controller` checks
+// below, ignores that request's response even if it had already landed -
+// otherwise a stale response for an old selection could resolve after a
+// fresher one and silently overwrite it, and both would fight over the
+// same timerRef for any further polling.
 export async function runBackendAwareFetch({
   url,
   attempt,
   timerRef,
+  abortControllerRef,
   setBackendStarting,
   setTriggerDropped,
   setError,
@@ -72,10 +82,15 @@ export async function runBackendAwareFetch({
   pollIntervalMs,
   maxAttempts,
 }: RunBackendAwareFetchOptions): Promise<void> {
+  abortControllerRef.current?.abort();
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
+
   setError('');
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
     const data = await response.json().catch(() => null);
+    if (abortControllerRef.current !== controller) return;
     if (!response.ok) {
       const retrying = isBackendUnavailableStatus(response.status) && scheduleBackendRetry({
         timerRef,
@@ -97,7 +112,9 @@ export async function runBackendAwareFetch({
     setBackendStarting(false);
     setTriggerDropped(false);
     onSuccess(data);
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') return;
+    if (abortControllerRef.current !== controller) return;
     const retrying = scheduleBackendRetry({ timerRef, setBackendStarting, attempt, retry, pollIntervalMs, maxAttempts });
     if (retrying) {
       return;

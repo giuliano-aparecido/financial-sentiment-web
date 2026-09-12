@@ -1,102 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { signOutToLogin } from '@/lib/signOutToLogin';
-import { runBackendAwareFetch, runBackendAwareMutation } from '@/lib/backendAwareFetch';
-
-interface CrashReboundRow {
-  ticker: string;
-  name: string;
-  sector: string | null;
-  market_cap: number | null;
-  avg_volume_10d: number | null;
-  loss_date: string;
-  // Nullable, not just typed as such for form's sake: confirmed live in
-  // production - a recently-listed company's own trading history can
-  // start INSIDE the lookback window, giving its first day a NaN %
-  // change (serialized as JSON null - see financial-sentiment-api's
-  // research_job.py's _json_safe_records) that crashed this page's
-  // raw row.drop_pct.toFixed(2) call. Backend now excludes that row
-  // entirely (see swiss_crash_rebound.py), but these stay nullable here
-  // too - never assume an external API's numeric field can't be null at
-  // runtime just because a fix landed once.
-  loss_close: number | null;
-  drop_pct: number | null;
-  days_to_rebound: number;
-  gain_date: string;
-  gain_close: number | null;
-  gain_pct: number | null;
-}
-
-interface TodayScreenerRow {
-  ticker: string;
-  name: string;
-  sector: string | null;
-  market_cap: number | null;
-  price: number | null;
-  change_pct: number;
-  volume_today: number;
-  avg_volume_10d: number | null;
-}
-
-interface VolatilityIndicatorRow {
-  ticker: string;
-  name: string;
-  sector: string | null;
-  market_cap: number | null;
-  loss_days: number;
-  gain_days: number;
-  total_days: number;
-}
-
-// Rebound and volatility-indicator are no longer scanned live on every
-// click (2026-08-19) - financial-sentiment-api's scheduler.py now runs
-// each on a schedule (daily / monthly) and persists the result, at the
-// user's explicit request to cut Yahoo Finance call volume. A manual
-// Refresh button still exists for both (2026-08-19, also explicit
-// request) - it triggers the SAME guarded pipeline the cron uses, so
-// is_running here is true whether the in-progress scan was started
-// automatically or by this button, and the frontend can't tell (or need
-// to) which. "Today" (big-loss) is unchanged: fully live/on-demand via
-// its own separate job-slot status, since intraday data has no
-// meaningful cache window - see TodayScanStatus below.
-interface ReboundScanResult {
-  rows: CrashReboundRow[];
-  scan_run_at: string | null;
-  is_running: boolean;
-  failed_ticker_count: number;
-}
-
-interface IndicatorScanResult {
-  rows: VolatilityIndicatorRow[];
-  scan_run_at: string | null;
-  is_running: boolean;
-  failed_ticker_count: number;
-}
-
-interface TodayScanStatus {
-  status: 'idle' | 'running' | 'done' | 'error';
-  started_at?: string;
-  finished_at?: string;
-  universe_size?: number;
-  today_screener?: TodayScreenerRow[];
-  error?: string;
-}
-
-const THRESHOLD_OPTIONS = [2, 3, 5] as const;
-
-// Polling this often keeps the wait feeling responsive without coming
-// close to the status routes' own 30-per-60s budget (see
-// app/api/research/volatility/*/status/route.ts) - a 1-3 minute scan
-// polled every 5s is at most ~36 requests total, spread out, not bursty.
-const POLL_INTERVAL_MS = 5000;
-
-// How many consecutive backend-unavailable responses to silently retry
-// through (at POLL_INTERVAL_MS apart) before giving up and showing a real
-// error - see BackendStartingNotice's own comment for why this exists.
-// 24 * 5s = 2 minutes, comfortably past a Render free-tier cold start.
-const BACKEND_STARTUP_MAX_ATTEMPTS = 24;
+import {
+  THRESHOLD_OPTIONS,
+  useReboundScan,
+  useTodayScan,
+  useIndicatorScan,
+  toggleSort,
+  type SortState,
+} from '@/lib/volatilityScans';
 
 function formatMarketCap(value: number | null): string {
   if (value == null) return 'N/A';
@@ -118,86 +31,6 @@ function formatPct(value: number | null, signed = false): string {
   return `${sign}${value.toFixed(2)}%`;
 }
 
-interface CsvColumn<T> {
-  key: Extract<keyof T, string>;
-  label: string;
-}
-
-// Column lists for CSV export, kept separate from the <table> JSX below
-// rather than driving both from one shared definition - the table cells
-// have per-column formatting/coloring (CHF prefixes, +/- signs, red/green)
-// that isn't worth generalizing into a render-prop just for this. That
-// means these lists need to be kept in sync BY HAND with the <thead>
-// columns below if either changes - these columns have already changed
-// five times over this page's life, so don't forget this list when they
-// change again.
-const CRASH_REBOUND_CSV_COLUMNS: CsvColumn<CrashReboundRow>[] = [
-  { key: 'ticker', label: 'Ticker' },
-  { key: 'name', label: 'Name' },
-  { key: 'sector', label: 'Sector' },
-  { key: 'market_cap', label: 'Market cap' },
-  { key: 'avg_volume_10d', label: 'ADTV (10d)' },
-  { key: 'loss_date', label: 'Loss date' },
-  { key: 'loss_close', label: 'Loss close' },
-  { key: 'drop_pct', label: 'Drop %' },
-  { key: 'days_to_rebound', label: 'Days to rebound' },
-  { key: 'gain_date', label: 'Gain date' },
-  { key: 'gain_close', label: 'Gain close' },
-  { key: 'gain_pct', label: 'Gain %' },
-];
-
-const TODAY_SCREENER_CSV_COLUMNS: CsvColumn<TodayScreenerRow>[] = [
-  { key: 'ticker', label: 'Ticker' },
-  { key: 'name', label: 'Name' },
-  { key: 'sector', label: 'Sector' },
-  { key: 'market_cap', label: 'Market cap' },
-  { key: 'price', label: 'Price' },
-  { key: 'change_pct', label: 'Change %' },
-  { key: 'volume_today', label: 'Volume today' },
-];
-
-const VOLATILITY_INDICATOR_CSV_COLUMNS: CsvColumn<VolatilityIndicatorRow>[] = [
-  { key: 'ticker', label: 'Ticker' },
-  { key: 'name', label: 'Name' },
-  { key: 'sector', label: 'Sector' },
-  { key: 'market_cap', label: 'Market cap' },
-  { key: 'loss_days', label: 'Loss days' },
-  { key: 'gain_days', label: 'Gain days' },
-  { key: 'total_days', label: 'Total days' },
-];
-
-function escapeCsvValue(value: unknown): string {
-  if (value == null) return '';
-  const str = String(value);
-  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-}
-
-// Exports RAW values (e.g. market_cap as a plain number, not the
-// "CHF 1.19B" the table displays) rather than mirroring the on-screen
-// formatting - a CSV is meant for further analysis in a spreadsheet,
-// where "1190000000" is usable and "CHF 1.19B" just has to be re-parsed.
-function rowsToCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
-  const header = columns.map((c) => escapeCsvValue(c.label)).join(',');
-  const body = rows.map((row) => columns.map((c) => escapeCsvValue(row[c.key])).join(','));
-  return [header, ...body].join('\r\n');
-}
-
-function downloadCsv(filename: string, csvContent: string): void {
-  // Leading BOM so Excel (which otherwise guesses the wrong encoding for
-  // non-ASCII characters - e.g. accented company names) opens this
-  // correctly instead of mangling them.
-  const bom = String.fromCharCode(0xfeff);
-  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
 const cellStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #eee', fontSize: '13px' };
 const headerCellStyle: React.CSSProperties = {
   ...cellStyle,
@@ -207,36 +40,6 @@ const headerCellStyle: React.CSSProperties = {
   borderBottom: '2px solid #ddd',
   whiteSpace: 'nowrap',
 };
-
-type SortDirection = 'asc' | 'desc';
-type SortState = { key: string | null; direction: SortDirection };
-
-// Generic over the row shape so all three tables (different columns)
-// share one implementation. Nulls always sort last regardless of
-// direction - "no data" isn't meaningfully "low" or "high", and burying
-// it at the bottom either way is less surprising than it jumping to the
-// top on a descending sort.
-function sortRows<T extends object>(rows: T[], sort: SortState): T[] {
-  if (!sort.key) return rows;
-  const key = sort.key;
-  const dir = sort.direction === 'asc' ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const av = (a as Record<string, unknown>)[key];
-    const bv = (b as Record<string, unknown>)[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (typeof av === 'string' && typeof bv === 'string') {
-      return dir * av.localeCompare(bv);
-    }
-    return dir * (Number(av) - Number(bv));
-  });
-}
-
-function toggleSort(current: SortState, key: string): SortState {
-  if (current.key !== key) return { key, direction: 'asc' };
-  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
-}
 
 function DownloadCsvButton({ onClick }: { onClick: () => void }) {
   return (
@@ -377,7 +180,8 @@ function ScanInProgressNotice() {
 // free tier spins the app down after idle and can take up to ~a minute to
 // come back up ("Waiting for application startup." in its logs). The
 // fetchers below keep retrying silently through that window instead of
-// surfacing it as a failure - see BACKEND_STARTUP_MAX_ATTEMPTS.
+// surfacing it as a failure - see BACKEND_STARTUP_MAX_ATTEMPTS in
+// lib/volatilityScans.ts.
 function BackendStartingNotice() {
   return (
     <InfoNotice>
@@ -423,318 +227,48 @@ function IncompleteScanWarning({ count }: { count: number }) {
 export default function VolatilityResearchPage() {
   const { data: session } = useSession();
 
-  // --- Rebound: reads the latest scheduled scan; manual Refresh triggers
-  // the same guarded pipeline the cron uses (see interfaces' own comment) ---
-  const [reboundResult, setReboundResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null, is_running: false, failed_ticker_count: 0 });
-  const [reboundLoading, setReboundLoading] = useState(true);
-  const [reboundError, setReboundError] = useState('');
-  const [reboundBackendStarting, setReboundBackendStarting] = useState(false);
-  const [reboundTriggerDropped, setReboundTriggerDropped] = useState(false);
-  const reboundPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [crashSort, setCrashSort] = useState<SortState>({ key: null, direction: 'asc' });
-  const sortedCrashRebound = useMemo(
-    () => sortRows(reboundResult.rows, crashSort),
-    [reboundResult.rows, crashSort],
-  );
+  const {
+    result: reboundResult,
+    loading: reboundLoading,
+    error: reboundError,
+    backendStarting: reboundBackendStarting,
+    triggerDropped: reboundTriggerDropped,
+    sort: crashSort,
+    setSort: setCrashSort,
+    sortedRows: sortedCrashRebound,
+    handleRefresh: handleReboundRefresh,
+    handleRetry: handleReboundRetry,
+    handleDownload: handleDownloadCrashRebound,
+  } = useReboundScan();
 
-  // --- Today/big-loss scan state (own independent backend job - unchanged,
-  // still fully live/on-demand, see the interface's own comment) ---
-  const [todayStatus, setTodayStatus] = useState<TodayScanStatus>({ status: 'idle' });
-  const [todayError, setTodayError] = useState('');
-  const [todayBackendStarting, setTodayBackendStarting] = useState(false);
-  const [todayTriggerDropped, setTodayTriggerDropped] = useState(false);
-  const todayPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [todaySort, setTodaySort] = useState<SortState>({ key: null, direction: 'asc' });
-  const sortedTodayScreener = useMemo(
-    () => sortRows(todayStatus.today_screener ?? [], todaySort),
-    [todayStatus.today_screener, todaySort],
-  );
-  const isTodayRunning = todayStatus.status === 'running';
+  const {
+    status: todayStatus,
+    error: todayError,
+    backendStarting: todayBackendStarting,
+    triggerDropped: todayTriggerDropped,
+    isRunning: isTodayRunning,
+    sort: todaySort,
+    setSort: setTodaySort,
+    sortedRows: sortedTodayScreener,
+    handleRefresh: handleTodayRefresh,
+    handleDownload: handleDownloadTodayScreener,
+  } = useTodayScan();
 
-  // --- Volatility-indicator: reads the latest scheduled scan for the
-  // selected threshold; manual Refresh triggers a run covering ALL
-  // thresholds (see interfaces' own comment and IndicatorScanResult) ---
-  const [indicatorResult, setIndicatorResult] = useState<IndicatorScanResult>({ rows: [], scan_run_at: null, is_running: false, failed_ticker_count: 0 });
-  const [indicatorLoading, setIndicatorLoading] = useState(true);
-  const [indicatorError, setIndicatorError] = useState('');
-  const [indicatorBackendStarting, setIndicatorBackendStarting] = useState(false);
-  const [indicatorTriggerDropped, setIndicatorTriggerDropped] = useState(false);
-  const [indicatorThreshold, setIndicatorThreshold] = useState<number>(THRESHOLD_OPTIONS[0]);
-  const indicatorPollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [indicatorSort, setIndicatorSort] = useState<SortState>({ key: null, direction: 'asc' });
-  const sortedVolatilityIndicator = useMemo(
-    () => sortRows(indicatorResult.rows, indicatorSort),
-    [indicatorResult.rows, indicatorSort],
-  );
-
-  // --- Rebound fetch/poll/trigger ---
-
-  const stopReboundPolling = () => {
-    if (reboundPollTimer.current) {
-      clearTimeout(reboundPollTimer.current);
-      reboundPollTimer.current = null;
-    }
-  };
-
-  // Fetches the current result and, if a scan is running (started by the
-  // cron OR by handleReboundRefresh below - indistinguishable and that's
-  // the point, see interfaces' own comment), keeps polling every 5s until
-  // it isn't. Called on mount AND right after a manual trigger, so both
-  // paths converge on the same loop. `attempt` only counts consecutive
-  // backend-unavailable responses (see BackendStartingNotice) - a healthy
-  // response resets it, so a long-running is_running poll never trips it.
-  const fetchReboundResult = async (attempt = 0): Promise<void> => {
-    try {
-      await runBackendAwareFetch({
-        url: '/api/research/volatility/rebound',
-        attempt,
-        timerRef: reboundPollTimer,
-        setBackendStarting: setReboundBackendStarting,
-        setTriggerDropped: setReboundTriggerDropped,
-        setError: setReboundError,
-        stopPolling: stopReboundPolling,
-        networkErrorMessage: 'Failed to reach the research backend.',
-        retry: fetchReboundResult,
-        pollIntervalMs: POLL_INTERVAL_MS,
-        maxAttempts: BACKEND_STARTUP_MAX_ATTEMPTS,
-        onSuccess: (data) => {
-          const parsed = data as ReboundScanResult;
-          setReboundResult(parsed);
-          if (parsed.is_running) {
-            reboundPollTimer.current = setTimeout(() => fetchReboundResult(), POLL_INTERVAL_MS);
-          } else {
-            stopReboundPolling();
-          }
-        },
-      });
-    } finally {
-      setReboundLoading(false);
-    }
-  };
-
-  const handleReboundRefresh = async () => {
-    const lastRunText = reboundResult.scan_run_at
-      ? `The last scan ran at ${new Date(reboundResult.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan makes live Yahoo Finance calls and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setReboundError('');
-    setReboundTriggerDropped(false);
-    const result = await runBackendAwareMutation({
-      url: '/api/research/volatility/rebound/start',
-      stopPolling: stopReboundPolling,
-      fetchLatest: fetchReboundResult,
-      setTriggerDropped: setReboundTriggerDropped,
-      setError: setReboundError,
-    });
-    if (!result.ok) return;
-    stopReboundPolling();
-    fetchReboundResult();
-  };
-
-  // Separate from handleReboundRefresh above - Refresh is always a hard,
-  // full scan (see ReboundScanResult's own comment); this retries ONLY
-  // the tickers that failed on the last scan. No confirm() dialog - it's
-  // a small, fast operation (a handful of tickers, not the whole
-  // universe), unlike a full scan.
-  const handleReboundRetry = async () => {
-    setReboundError('');
-    setReboundTriggerDropped(false);
-    const result = await runBackendAwareMutation({
-      url: '/api/research/volatility/rebound/retry',
-      stopPolling: stopReboundPolling,
-      fetchLatest: fetchReboundResult,
-      setTriggerDropped: setReboundTriggerDropped,
-      setError: setReboundError,
-    });
-    if (!result.ok) return;
-    stopReboundPolling();
-    fetchReboundResult();
-  };
-
-  // --- Today/big-loss polling/refresh ---
-
-  const stopTodayPolling = () => {
-    if (todayPollTimer.current) {
-      clearTimeout(todayPollTimer.current);
-      todayPollTimer.current = null;
-    }
-  };
-
-  // `attempt` only counts consecutive backend-unavailable responses (see
-  // BackendStartingNotice) - a healthy response resets it, so a
-  // long-running scan's own is_running polling never trips it.
-  const pollTodayStatus = async (attempt = 0): Promise<void> => {
-    await runBackendAwareFetch({
-      url: '/api/research/volatility/today/status',
-      attempt,
-      timerRef: todayPollTimer,
-      setBackendStarting: setTodayBackendStarting,
-      setTriggerDropped: setTodayTriggerDropped,
-      setError: setTodayError,
-      stopPolling: stopTodayPolling,
-      networkErrorMessage: 'Lost connection while checking scan status.',
-      retry: pollTodayStatus,
-      pollIntervalMs: POLL_INTERVAL_MS,
-      maxAttempts: BACKEND_STARTUP_MAX_ATTEMPTS,
-      onSuccess: (data) => {
-        const parsed = data as TodayScanStatus;
-        setTodayStatus(parsed);
-        if (parsed.status === 'running') {
-          todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
-        }
-      },
-    });
-  };
-
-  const handleTodayRefresh = async () => {
-    setTodayError('');
-    setTodayTriggerDropped(false);
-    const result = await runBackendAwareMutation({
-      url: '/api/research/volatility/today/start',
-      stopPolling: stopTodayPolling,
-      fetchLatest: pollTodayStatus,
-      setTriggerDropped: setTodayTriggerDropped,
-      setError: setTodayError,
-    });
-    if (!result.ok) return;
-    setTodayStatus(result.data as TodayScanStatus);
-    stopTodayPolling();
-    todayPollTimer.current = setTimeout(() => pollTodayStatus(), POLL_INTERVAL_MS);
-  };
-
-  // --- Volatility-indicator fetch/poll/trigger ---
-
-  const stopIndicatorPolling = () => {
-    if (indicatorPollTimer.current) {
-      clearTimeout(indicatorPollTimer.current);
-      indicatorPollTimer.current = null;
-    }
-  };
-
-  // Same shape as fetchReboundResult above - polls while is_running,
-  // whether that run was started by the cron or by handleIndicatorRefresh.
-  // is_running is shared across all three thresholds (one scan run covers
-  // all of them - see scheduler._run_indicator_scans), so this keeps
-  // polling under whichever threshold is currently selected regardless of
-  // which one the in-progress scan happens to be about.
-  const fetchIndicatorResult = async (thresholdPct: number, attempt = 0): Promise<void> => {
-    try {
-      await runBackendAwareFetch({
-        url: `/api/research/volatility/indicator?threshold_pct=${thresholdPct}`,
-        attempt,
-        timerRef: indicatorPollTimer,
-        setBackendStarting: setIndicatorBackendStarting,
-        setTriggerDropped: setIndicatorTriggerDropped,
-        setError: setIndicatorError,
-        stopPolling: stopIndicatorPolling,
-        networkErrorMessage: 'Failed to reach the research backend.',
-        retry: (next) => fetchIndicatorResult(thresholdPct, next),
-        pollIntervalMs: POLL_INTERVAL_MS,
-        maxAttempts: BACKEND_STARTUP_MAX_ATTEMPTS,
-        onSuccess: (data) => {
-          const parsed = data as IndicatorScanResult;
-          setIndicatorResult(parsed);
-          if (parsed.is_running) {
-            indicatorPollTimer.current = setTimeout(() => fetchIndicatorResult(thresholdPct), POLL_INTERVAL_MS);
-          } else {
-            stopIndicatorPolling();
-          }
-        },
-      });
-    } finally {
-      setIndicatorLoading(false);
-    }
-  };
-
-  const handleIndicatorRefresh = async () => {
-    const lastRunText = indicatorResult.scan_run_at
-      ? `The last scan ran at ${new Date(indicatorResult.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setIndicatorError('');
-    setIndicatorTriggerDropped(false);
-    const result = await runBackendAwareMutation({
-      url: `/api/research/volatility/indicator/start?threshold_pct=${indicatorThreshold}`,
-      stopPolling: stopIndicatorPolling,
-      fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-      setTriggerDropped: setIndicatorTriggerDropped,
-      setError: setIndicatorError,
-    });
-    if (!result.ok) return;
-    stopIndicatorPolling();
-    fetchIndicatorResult(indicatorThreshold);
-  };
-
-  // Separate from handleIndicatorRefresh above - same "Refresh is always
-  // a hard full scan, this retries only the failures" split as rebound's
-  // own handleReboundRetry. Covers every threshold in one call (no
-  // threshold_pct needed - see the /retry route's own comment).
-  const handleIndicatorRetry = async () => {
-    setIndicatorError('');
-    setIndicatorTriggerDropped(false);
-    const result = await runBackendAwareMutation({
-      url: '/api/research/volatility/indicator/retry',
-      stopPolling: stopIndicatorPolling,
-      fetchLatest: () => fetchIndicatorResult(indicatorThreshold),
-      setTriggerDropped: setIndicatorTriggerDropped,
-      setError: setIndicatorError,
-    });
-    if (!result.ok) return;
-    stopIndicatorPolling();
-    fetchIndicatorResult(indicatorThreshold);
-  };
-
-  // Rebound fetches once on mount, then polls only if a scan turns out to
-  // be running. Indicator does the same on mount AND whenever the
-  // threshold selector changes (a fresh read for that threshold, still
-  // subject to the same is_running polling). Today keeps its original
-  // poll-current-status-on-load behavior unchanged, since it's still a
-  // live/on-demand background job with its own separate status shape.
-  useEffect(() => {
-    fetchReboundResult();
-    return stopReboundPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    pollTodayStatus();
-    return stopTodayPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    stopIndicatorPolling();
-    fetchIndicatorResult(indicatorThreshold);
-    return stopIndicatorPolling;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indicatorThreshold]);
-
-  const todayIso = () => new Date().toISOString().slice(0, 10);
-
-  const universeLabel = 'chf500m-plus-ex-smi';
-
-  const handleDownloadCrashRebound = () => {
-    const csv = rowsToCsv(sortedCrashRebound, CRASH_REBOUND_CSV_COLUMNS);
-    downloadCsv(`swiss-${universeLabel}-crash-rebound-${todayIso()}.csv`, csv);
-  };
-
-  const handleDownloadTodayScreener = () => {
-    const csv = rowsToCsv(sortedTodayScreener, TODAY_SCREENER_CSV_COLUMNS);
-    downloadCsv(`swiss-${universeLabel}-today-${todayIso()}.csv`, csv);
-  };
-
-  const handleDownloadVolatilityIndicator = () => {
-    const csv = rowsToCsv(sortedVolatilityIndicator, VOLATILITY_INDICATOR_CSV_COLUMNS);
-    downloadCsv(`swiss-${universeLabel}-volatility-indicator-${indicatorThreshold}pct-${todayIso()}.csv`, csv);
-  };
+  const {
+    result: indicatorResult,
+    loading: indicatorLoading,
+    error: indicatorError,
+    backendStarting: indicatorBackendStarting,
+    triggerDropped: indicatorTriggerDropped,
+    threshold: indicatorThreshold,
+    setThreshold: setIndicatorThreshold,
+    sort: indicatorSort,
+    setSort: setIndicatorSort,
+    sortedRows: sortedVolatilityIndicator,
+    handleRefresh: handleIndicatorRefresh,
+    handleRetry: handleIndicatorRetry,
+    handleDownload: handleDownloadVolatilityIndicator,
+  } = useIndicatorScan();
 
   return (
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
@@ -826,11 +360,10 @@ export default function VolatilityResearchPage() {
                     <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
                     <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
                     <td style={cellStyle}>{row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A'}</td>
-                    <td style={{ ...cellStyle, color: row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
-                      {row.change_pct > 0 ? '+' : ''}
-                      {row.change_pct.toFixed(2)}%
+                    <td style={{ ...cellStyle, color: row.change_pct == null ? '#666' : row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
+                      {formatPct(row.change_pct, true)}
                     </td>
-                    <td style={cellStyle}>{row.volume_today.toLocaleString()}</td>
+                    <td style={cellStyle}>{formatVolume(row.volume_today)}</td>
                   </tr>
                 ))}
               </tbody>
