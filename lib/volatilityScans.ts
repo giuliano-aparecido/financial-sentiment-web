@@ -8,15 +8,6 @@ export interface CrashReboundRow {
   market_cap: number | null;
   avg_volume_10d: number | null;
   loss_date: string;
-  // Nullable, not just typed as such for form's sake: confirmed live in
-  // production - a recently-listed company's own trading history can
-  // start INSIDE the lookback window, giving its first day a NaN %
-  // change (serialized as JSON null - see financial-sentiment-api's
-  // research_job.py's _json_safe_records) that crashed this page's
-  // raw row.drop_pct.toFixed(2) call. Backend now excludes that row
-  // entirely (see swiss_crash_rebound.py), but these stay nullable here
-  // too - never assume an external API's numeric field can't be null at
-  // runtime just because a fix landed once.
   loss_close: number | null;
   drop_pct: number | null;
   days_to_rebound: number;
@@ -46,17 +37,6 @@ export interface VolatilityIndicatorRow {
   total_days: number;
 }
 
-// Rebound and volatility-indicator are no longer scanned live on every
-// click (2026-08-19) - financial-sentiment-api's scheduler.py now runs
-// each on a schedule (daily / monthly) and persists the result, at the
-// user's explicit request to cut Yahoo Finance call volume. A manual
-// Refresh button still exists for both (2026-08-19, also explicit
-// request) - it triggers the SAME guarded pipeline the cron uses, so
-// is_running here is true whether the in-progress scan was started
-// automatically or by this button, and the frontend can't tell (or need
-// to) which. "Today" (big-loss) is unchanged: fully live/on-demand via
-// its own separate job-slot status, since intraday data has no
-// meaningful cache window - see TodayScanStatus below.
 export interface ReboundScanResult {
   rows: CrashReboundRow[];
   scan_run_at: string | null;
@@ -82,16 +62,8 @@ export interface TodayScanStatus {
 
 export const THRESHOLD_OPTIONS = [2, 3, 5] as const;
 
-// Polling this often keeps the wait feeling responsive without coming
-// close to the status routes' own 30-per-60s budget (see
-// app/api/research/volatility/*/status/route.ts) - a 1-3 minute scan
-// polled every 5s is at most ~36 requests total, spread out, not bursty.
 const POLL_INTERVAL_MS = 5000;
 
-// How many consecutive backend-unavailable responses to silently retry
-// through (at POLL_INTERVAL_MS apart) before giving up and showing a real
-// error - see BackendStartingNotice's own comment for why this exists.
-// 24 * 5s = 2 minutes, comfortably past a Render free-tier cold start.
 const BACKEND_STARTUP_MAX_ATTEMPTS = 24;
 
 const UNIVERSE_LABEL = 'chf500m-plus-ex-smi';
@@ -102,14 +74,6 @@ export interface CsvColumn<T> {
   label: string;
 }
 
-// Column lists for CSV export, kept separate from the <table> JSX in
-// page.tsx rather than driving both from one shared definition - the
-// table cells have per-column formatting/coloring (CHF prefixes, +/-
-// signs, red/green) that isn't worth generalizing into a render-prop
-// just for this. That means these lists need to be kept in sync BY HAND
-// with the <thead> columns there if either changes - these columns have
-// already changed five times over this page's life, so don't forget
-// this list when they change again.
 const CRASH_REBOUND_CSV_COLUMNS: CsvColumn<CrashReboundRow>[] = [
   { key: 'ticker', label: 'Ticker' },
   { key: 'name', label: 'Name' },
@@ -151,10 +115,6 @@ function escapeCsvValue(value: unknown): string {
   return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 
-// Exports RAW values (e.g. market_cap as a plain number, not the
-// "CHF 1.19B" the table displays) rather than mirroring the on-screen
-// formatting - a CSV is meant for further analysis in a spreadsheet,
-// where "1190000000" is usable and "CHF 1.19B" just has to be re-parsed.
 function rowsToCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
   const header = columns.map((c) => escapeCsvValue(c.label)).join(',');
   const body = rows.map((row) => columns.map((c) => escapeCsvValue(row[c.key])).join(','));
@@ -162,9 +122,6 @@ function rowsToCsv<T>(rows: T[], columns: CsvColumn<T>[]): string {
 }
 
 function downloadCsv(filename: string, csvContent: string): void {
-  // Leading BOM so Excel (which otherwise guesses the wrong encoding for
-  // non-ASCII characters - e.g. accented company names) opens this
-  // correctly instead of mangling them.
   const bom = String.fromCharCode(0xfeff);
   const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -180,11 +137,6 @@ function downloadCsv(filename: string, csvContent: string): void {
 export type SortDirection = 'asc' | 'desc';
 export type SortState = { key: string | null; direction: SortDirection };
 
-// Generic over the row shape so all three tables (different columns)
-// share one implementation. Nulls always sort last regardless of
-// direction - "no data" isn't meaningfully "low" or "high", and burying
-// it at the bottom either way is less surprising than it jumping to the
-// top on a descending sort.
 export function sortRows<T extends object>(rows: T[], sort: SortState): T[] {
   if (!sort.key) return rows;
   const key = sort.key;
@@ -207,10 +159,6 @@ export function toggleSort(current: SortState, key: string): SortState {
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
 }
 
-// Shared by all three scan hooks: a cancellable poll loop needs both a
-// timer (for the next scheduled tick) and an AbortController (for the
-// in-flight request itself) cleared together, or a stale timer/request
-// from before a stop could still fire/resolve after the caller moved on.
 function usePollController() {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -226,13 +174,6 @@ function usePollController() {
   return { pollTimer, abortController, stopPolling };
 }
 
-// Fetches the current result and, if a scan is running (started by the
-// cron OR by handleRefresh below - indistinguishable and that's the
-// point, see ReboundScanResult's own comment), keeps polling every 5s
-// until it isn't. Called on mount AND right after a manual trigger, so
-// both paths converge on the same loop. `attempt` only counts consecutive
-// backend-unavailable responses (see BackendStartingNotice) - a healthy
-// response resets it, so a long-running is_running poll never trips it.
 export function useReboundScan() {
   const [result, setResult] = useState<ReboundScanResult>({ rows: [], scan_run_at: null, is_running: false, failed_ticker_count: 0 });
   const [loading, setLoading] = useState(true);
@@ -296,16 +237,11 @@ export function useReboundScan() {
     fetchResult();
   };
 
-  // Separate from handleRefresh above - Refresh is always a hard, full
-  // scan (see ReboundScanResult's own comment); this retries ONLY the
-  // tickers that failed on the last scan. No confirm() dialog - it's a
-  // small, fast operation (a handful of tickers, not the whole universe),
-  // unlike a full scan.
   const handleRetry = async () => {
     setError('');
     setTriggerDropped(false);
     const outcome = await runBackendAwareMutation({
-      url: '/api/research/volatility/rebound/retry',
+      url: '/api/research/volatility/rebound/retryOnlyFailed',
       stopPolling,
       fetchLatest: fetchResult,
       setTriggerDropped,
@@ -340,9 +276,6 @@ export function useTodayScan() {
   const sortedRows = useMemo(() => sortRows(status.today_screener ?? [], sort), [status.today_screener, sort]);
   const isRunning = status.status === 'running';
 
-  // `attempt` only counts consecutive backend-unavailable responses (see
-  // BackendStartingNotice) - a healthy response resets it, so a
-  // long-running scan's own is_running polling never trips it.
   const pollStatus = async (attempt = 0): Promise<void> => {
     await runBackendAwareFetch({
       url: '/api/research/volatility/today/status',
@@ -407,12 +340,6 @@ export function useIndicatorScan() {
   const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' });
   const sortedRows = useMemo(() => sortRows(result.rows, sort), [result.rows, sort]);
 
-  // Same shape as useReboundScan's fetchResult above - polls while
-  // is_running, whether that run was started by the cron or by
-  // handleRefresh. is_running is shared across all three thresholds (one
-  // scan run covers all of them - see scheduler._run_indicator_scans), so
-  // this keeps polling under whichever threshold is currently selected
-  // regardless of which one the in-progress scan happens to be about.
   const fetchResult = async (thresholdPct: number, attempt = 0): Promise<void> => {
     try {
       await runBackendAwareFetch({
@@ -466,15 +393,11 @@ export function useIndicatorScan() {
     fetchResult(threshold);
   };
 
-  // Separate from handleRefresh above - same "Refresh is always a hard
-  // full scan, this retries only the failures" split as rebound's own
-  // handleRetry. Covers every threshold in one call (no threshold_pct
-  // needed - see the /retry route's own comment).
   const handleRetry = async () => {
     setError('');
     setTriggerDropped(false);
     const outcome = await runBackendAwareMutation({
-      url: '/api/research/volatility/indicator/retry',
+      url: '/api/research/volatility/indicator/retryOnlyFailed',
       stopPolling,
       fetchLatest: () => fetchResult(threshold),
       setTriggerDropped,
@@ -490,9 +413,6 @@ export function useIndicatorScan() {
     downloadCsv(`swiss-${UNIVERSE_LABEL}-volatility-indicator-${threshold}pct-${todayIso()}.csv`, csv);
   };
 
-  // Fetches once on mount, then whenever the threshold selector changes
-  // (a fresh read for that threshold, still subject to the same
-  // is_running polling).
   useEffect(() => {
     stopPolling();
     fetchResult(threshold);

@@ -11,13 +11,6 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 // backend API has its own global rate limit as the real backstop (see
 // app/api/research/volatility/start/route.ts's comment for why that
 // backstop is especially important for the research scan specifically).
-//
-// windowMs/maxRequests are optional so every existing call site (just
-// /api/analyze today) keeps its original 10-per-60s behavior unchanged;
-// pass a different key AND different limits together for an independent
-// budget (see app/api/research/volatility/*/route.ts, which use a
-// "research:"-prefixed key precisely so their budget doesn't share a
-// bucket with /api/analyze's).
 export function checkRateLimit(
   key: string,
   windowMs: number = DEFAULT_WINDOW_MS,

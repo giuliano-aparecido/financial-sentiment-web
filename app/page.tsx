@@ -19,34 +19,6 @@ interface AnalysisResult {
   earnings?: string;
 }
 
-// A data card renders nothing when its field is missing, or when it's
-// exactly "Data unavailable." (the api's fetchers - and the model, when it
-// says so itself - use this literal string for a failed fetch; "Not
-// applicable ..." from a computed-but-inapplicable valuation is real
-// content and should still render, so this checks for that one exact
-// string rather than any falsy/empty content).
-function hasData(block: string | undefined): block is string {
-  return typeof block === 'string' && block.trim().length > 0 && block !== 'Data unavailable.';
-}
-
-// Renders one of the market_data/valuation/earnings blocks the api
-// returns as a preformatted, already-labeled string (see financial-
-// sentiment-api's app/services/{fundamentals,valuation,earnings}.py) -
-// nothing to parse or reshape here, just display it. Renders nothing when
-// this specific block has no data, so a partial-outage response (e.g.
-// yfinance down but the model still answered) shows only the cards that
-// actually have something to say instead of three empty boxes.
-function DataCard({ title, content }: { title: string; content?: string }) {
-  if (!hasData(content)) return null;
-
-  return (
-    <div style={{ backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd' }}>
-      <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#666' }}>{title}</strong>
-      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontSize: '13px' }}>{content}</pre>
-    </div>
-  );
-}
-
 export default function Home() {
   const { data: session } = useSession();
   const [query, setQuery] = useState('');
@@ -62,18 +34,7 @@ export default function Home() {
     setResult(null);
 
     try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_query: query }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null);
-        throw new Error(errorBody?.error || `Server returned status ${response.status}`);
-      }
-
-      const data: AnalysisResult = await response.json();
+      const data = await fetchAnalysis(query);
       setResult(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to analyze query. Please check your backend status.';
@@ -239,4 +200,34 @@ export default function Home() {
       )}
     </main>
   );
+}
+
+function hasData(block: string | undefined): block is string {
+  return typeof block === 'string' && block.trim().length > 0 && block !== 'Data unavailable.';
+}
+
+function DataCard({ title, content }: { title: string; content?: string }) {
+  if (!hasData(content)) return null;
+
+  return (
+    <div style={{ backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd' }}>
+      <strong style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#666' }}>{title}</strong>
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontSize: '13px' }}>{content}</pre>
+    </div>
+  );
+}
+
+async function fetchAnalysis(query: string): Promise<AnalysisResult> {
+  const response = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_query: query }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Server returned status ${response.status}`);
+  }
+
+  return response.json();
 }

@@ -12,7 +12,7 @@ import { getServerSession } from 'next-auth';
 
 const AUTHED_SESSION = { user: { email: 'user@example.com' } };
 
-describe('POST /api/research/volatility/indicator/retry', () => {
+describe('POST /api/research/volatility/rebound/retryOnlyFailed', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -31,32 +31,32 @@ describe('POST /api/research/volatility/indicator/retry', () => {
 
   it('returns 500 when RAG_API_URL/RAG_API_KEY are not configured', async () => {
     delete process.env.RAG_API_URL;
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     const response = await POST();
     expect(response.status).toBe(500);
   });
 
   it('returns 401 when there is no session', async () => {
     vi.mocked(getServerSession).mockResolvedValue(null);
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     const response = await POST();
     expect(response.status).toBe(401);
   });
 
   it('returns 404 when the session email is not the research-allowed one', async () => {
     process.env.ALLOWED_EMAILS_RESEARCH = 'someone-else@example.com';
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     const response = await POST();
     expect(response.status).toBe(404);
   });
 
-  it('hits the indicator/retry endpoint with no threshold_pct query param', async () => {
+  it('hits the rebound/retry endpoint, not /start', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     await POST();
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://rag-api.example.com/api/research/volatility/indicator/retry',
+      'https://rag-api.example.com/api/research/volatility/rebound/retry',
       expect.anything(),
     );
   });
@@ -66,7 +66,7 @@ describe('POST /api/research/volatility/indicator/retry', () => {
       'fetch',
       vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { name: 'TimeoutError' })),
     );
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     const response = await POST();
     expect(response.status).toBe(504);
   });
@@ -74,12 +74,12 @@ describe('POST /api/research/volatility/indicator/retry', () => {
   it('returns the upstream JSON on success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: true, is_running: true }), { status: 200 })),
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ started: false, is_running: false }), { status: 200 })),
     );
-    const { POST } = await import('../app/api/research/volatility/indicator/retry/route');
+    const { POST } = await import('../app/api/research/volatility/rebound/retryOnlyFailed/route');
     const response = await POST();
     expect(response.status).toBe(200);
     const data = await response.json();
-    expect(data).toEqual({ started: true, is_running: true });
+    expect(data).toEqual({ started: false, is_running: false });
   });
 });

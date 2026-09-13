@@ -17,16 +17,7 @@ interface GuardOptions {
   rateLimit?: RateLimitOptions;
 }
 
-// Returns the caller's email on success, or the NextResponse to return
-// immediately on failure - check `instanceof NextResponse` at the call site.
-//
-// The session/allowlist checks here are defense-in-depth, not the only
-// gate: proxy.ts's own matcher-based check is what actually blocks
-// unauthenticated/disallowed requests to these routes today, but that's
-// one regex edit away from silently exposing an endpoint that can trigger
-// an expensive backend scan or spend paid inference quota - re-checking
-// here means a proxy.ts regression can't expose these routes on its own.
-export async function guardBackendRequest({ isAllowed, rateLimit }: GuardOptions): Promise<{ email: string } | NextResponse> {
+export async function authorizeBackendRequest({ isAllowed, rateLimit }: GuardOptions): Promise<{ email: string } | NextResponse> {
   if (!RAG_API_URL || !RAG_API_KEY) {
     return NextResponse.json({ error: 'Server is not configured.' }, { status: 500 });
   }

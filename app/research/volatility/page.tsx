@@ -11,219 +11,6 @@ import {
   type SortState,
 } from '@/lib/volatilityScans';
 
-function formatMarketCap(value: number | null): string {
-  if (value == null) return 'N/A';
-  if (value >= 1e9) return `CHF ${(value / 1e9).toFixed(2)}B`;
-  return `CHF ${(value / 1e6).toFixed(0)}M`;
-}
-
-function formatVolume(value: number | null): string {
-  return value == null ? 'N/A' : value.toLocaleString();
-}
-
-function formatPrice(value: number | null): string {
-  return value == null ? 'N/A' : `CHF ${value.toFixed(2)}`;
-}
-
-function formatPct(value: number | null, signed = false): string {
-  if (value == null) return 'N/A';
-  const sign = signed && value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-const cellStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #eee', fontSize: '13px' };
-const headerCellStyle: React.CSSProperties = {
-  ...cellStyle,
-  fontWeight: 'bold',
-  color: '#666',
-  textAlign: 'left',
-  borderBottom: '2px solid #ddd',
-  whiteSpace: 'nowrap',
-};
-
-function DownloadCsvButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        marginTop: '8px',
-        padding: '6px 14px',
-        backgroundColor: 'transparent',
-        color: '#0070f3',
-        border: '1px solid #0070f3',
-        borderRadius: '6px',
-        fontSize: '13px',
-        cursor: 'pointer',
-      }}
-    >
-      Download CSV
-    </button>
-  );
-}
-
-function SortableHeader({
-  label,
-  sortKey,
-  sort,
-  onSort,
-  title,
-}: {
-  label: string;
-  sortKey: string;
-  sort: SortState;
-  onSort: (key: string) => void;
-  title?: string;
-}) {
-  const active = sort.key === sortKey;
-  return (
-    <th
-      style={{ ...headerCellStyle, cursor: 'pointer', userSelect: 'none' }}
-      onClick={() => onSort(sortKey)}
-      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-      title={title}
-    >
-      {label}
-      <span style={{ color: active ? '#0070f3' : '#ccc', marginLeft: '4px' }}>
-        {active ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'}
-      </span>
-    </th>
-  );
-}
-
-function RefreshButton({
-  onClick,
-  isRunning,
-  disabled,
-  label = 'Refresh',
-}: {
-  onClick: () => void;
-  isRunning: boolean;
-  disabled: boolean;
-  label?: string;
-}) {
-  // isRunning drives the label text, disabled drives whether the button
-  // can be clicked at all - kept as separate props. All three tables use
-  // this now: rebound/indicator's isRunning reflects scheduler.py's
-  // is_*_scan_running() (true for a cron-started run too, not just one
-  // this button itself triggered - see ReboundScanResult/
-  // IndicatorScanResult's own comment), today's reflects its own
-  // research_job.py job-slot status.
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        padding: '10px 20px',
-        backgroundColor: disabled ? '#888' : '#0070f3',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '6px',
-        fontSize: '15px',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
-    >
-      {isRunning ? 'Scanning… (1-3 min)' : disabled ? 'Waiting for another scan…' : label}
-    </button>
-  );
-}
-
-function TickerLink({ ticker }: { ticker: string }) {
-  return (
-    <a
-      href={`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{ color: 'inherit', fontWeight: 'bold', textDecoration: 'underline', textDecorationColor: '#ccc' }}
-    >
-      {ticker}
-    </a>
-  );
-}
-
-function ErrorBanner({ label, message }: { label: string; message: string }) {
-  return (
-    <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
-      <strong>{label}:</strong> {message}
-    </div>
-  );
-}
-
-function InfoNotice({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      style={{
-        padding: '12px',
-        backgroundColor: '#eff6ff',
-        border: '1px solid #bfdbfe',
-        borderRadius: '6px',
-        color: '#1e40af',
-        fontSize: '13px',
-      }}
-    >
-      {children}
-    </p>
-  );
-}
-
-function ScanInProgressNotice() {
-  return (
-    <InfoNotice>
-      A scan is currently running (started automatically or manually) - this can take several minutes. This
-      table will update automatically once it&apos;s done.
-    </InfoNotice>
-  );
-}
-
-// Shown instead of a hard error while the status/result fetch is failing
-// with a backend-unavailable signal (502/503/504, or the request not
-// connecting at all) - financial-sentiment-api is hosted on Render, whose
-// free tier spins the app down after idle and can take up to ~a minute to
-// come back up ("Waiting for application startup." in its logs). The
-// fetchers below keep retrying silently through that window instead of
-// surfacing it as a failure - see BACKEND_STARTUP_MAX_ATTEMPTS in
-// lib/volatilityScans.ts.
-function BackendStartingNotice() {
-  return (
-    <InfoNotice>
-      Waiting for the research backend to start up - this can take up to a minute after it&apos;s been idle.
-      Retrying automatically…
-    </InfoNotice>
-  );
-}
-
-function RequestNotSentNotice() {
-  return (
-    <InfoNotice>
-      That request may not have gone through - the backend was still starting up. Wait for it to come back
-      (see below), then click again.
-    </InfoNotice>
-  );
-}
-
-// Shown when the last completed scan couldn't fetch every ticker (e.g.
-// Yahoo rate-limiting mid-scan) - the table below is real but incomplete,
-// not a display bug. Refresh only retries these specific tickers rather
-// than redoing the whole scan (see financial-sentiment-api's
-// scheduler.py: trigger_rebound_scan/trigger_indicator_scan).
-function IncompleteScanWarning({ count }: { count: number }) {
-  return (
-    <p
-      style={{
-        padding: '12px',
-        backgroundColor: '#fef9c3',
-        border: '1px solid #fde047',
-        borderRadius: '6px',
-        color: '#854d0e',
-        fontSize: '13px',
-      }}
-    >
-      <strong>{count}</strong> {count === 1 ? 'company' : 'companies'} failed to fetch and{' '}
-      {count === 1 ? 'is' : 'are'} missing from this table (temporary fetch error, not excluded on purpose).
-      Click &quot;Retry Failed Tickers&quot; below to retry just {count === 1 ? 'it' : 'those'}.
-    </p>
-  );
-}
-
 export default function VolatilityResearchPage() {
   const { data: session } = useSession();
 
@@ -576,5 +363,218 @@ export default function VolatilityResearchPage() {
       </section>
 
     </main>
+  );
+}
+
+function formatMarketCap(value: number | null): string {
+  if (value == null) return 'N/A';
+  if (value >= 1e9) return `CHF ${(value / 1e9).toFixed(2)}B`;
+  return `CHF ${(value / 1e6).toFixed(0)}M`;
+}
+
+function formatVolume(value: number | null): string {
+  return value == null ? 'N/A' : value.toLocaleString();
+}
+
+function formatPrice(value: number | null): string {
+  return value == null ? 'N/A' : `CHF ${value.toFixed(2)}`;
+}
+
+function formatPct(value: number | null, signed = false): string {
+  if (value == null) return 'N/A';
+  const sign = signed && value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+const cellStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #eee', fontSize: '13px' };
+const headerCellStyle: React.CSSProperties = {
+  ...cellStyle,
+  fontWeight: 'bold',
+  color: '#666',
+  textAlign: 'left',
+  borderBottom: '2px solid #ddd',
+  whiteSpace: 'nowrap',
+};
+
+function DownloadCsvButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        marginTop: '8px',
+        padding: '6px 14px',
+        backgroundColor: 'transparent',
+        color: '#0070f3',
+        border: '1px solid #0070f3',
+        borderRadius: '6px',
+        fontSize: '13px',
+        cursor: 'pointer',
+      }}
+    >
+      Download CSV
+    </button>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  title,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortState;
+  onSort: (key: string) => void;
+  title?: string;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      style={{ ...headerCellStyle, cursor: 'pointer', userSelect: 'none' }}
+      onClick={() => onSort(sortKey)}
+      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      title={title}
+    >
+      {label}
+      <span style={{ color: active ? '#0070f3' : '#ccc', marginLeft: '4px' }}>
+        {active ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
+  );
+}
+
+function RefreshButton({
+  onClick,
+  isRunning,
+  disabled,
+  label = 'Refresh',
+}: {
+  onClick: () => void;
+  isRunning: boolean;
+  disabled: boolean;
+  label?: string;
+}) {
+  // isRunning drives the label text, disabled drives whether the button
+  // can be clicked at all - kept as separate props. All three tables use
+  // this now: rebound/indicator's isRunning reflects scheduler.py's
+  // is_*_scan_running() (true for a cron-started run too, not just one
+  // this button itself triggered - see ReboundScanResult/
+  // IndicatorScanResult's own comment), today's reflects its own
+  // research_job.py job-slot status.
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '10px 20px',
+        backgroundColor: disabled ? '#888' : '#0070f3',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '6px',
+        fontSize: '15px',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {isRunning ? 'Scanning… (1-3 min)' : disabled ? 'Waiting for another scan…' : label}
+    </button>
+  );
+}
+
+function TickerLink({ ticker }: { ticker: string }) {
+  return (
+    <a
+      href={`https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ color: 'inherit', fontWeight: 'bold', textDecoration: 'underline', textDecorationColor: '#ccc' }}
+    >
+      {ticker}
+    </a>
+  );
+}
+
+function ErrorBanner({ label, message }: { label: string; message: string }) {
+  return (
+    <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
+      <strong>{label}:</strong> {message}
+    </div>
+  );
+}
+
+function InfoNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      style={{
+        padding: '12px',
+        backgroundColor: '#eff6ff',
+        border: '1px solid #bfdbfe',
+        borderRadius: '6px',
+        color: '#1e40af',
+        fontSize: '13px',
+      }}
+    >
+      {children}
+    </p>
+  );
+}
+
+function ScanInProgressNotice() {
+  return (
+    <InfoNotice>
+      A scan is currently running (started automatically or manually) - this can take several minutes. This
+      table will update automatically once it&apos;s done.
+    </InfoNotice>
+  );
+}
+
+// Shown instead of a hard error while the status/result fetch is failing
+// with a backend-unavailable signal (502/503/504, or the request not
+// connecting at all) - financial-sentiment-api is hosted on Render, whose
+// free tier spins the app down after idle and can take up to ~a minute to
+// come back up ("Waiting for application startup." in its logs). The
+// fetchers below keep retrying silently through that window instead of
+// surfacing it as a failure - see BACKEND_STARTUP_MAX_ATTEMPTS in
+// lib/volatilityScans.ts.
+function BackendStartingNotice() {
+  return (
+    <InfoNotice>
+      Waiting for the research backend to start up - this can take up to a minute after it&apos;s been idle.
+      Retrying automatically…
+    </InfoNotice>
+  );
+}
+
+function RequestNotSentNotice() {
+  return (
+    <InfoNotice>
+      That request may not have gone through - the backend was still starting up. Wait for it to come back
+      (see below), then click again.
+    </InfoNotice>
+  );
+}
+
+// Shown when the last completed scan couldn't fetch every ticker (e.g.
+// Yahoo rate-limiting mid-scan) - the table below is real but incomplete,
+// not a display bug. Refresh only retries these specific tickers rather
+// than redoing the whole scan (see financial-sentiment-api's
+// scheduler.py: trigger_rebound_scan/trigger_indicator_scan).
+function IncompleteScanWarning({ count }: { count: number }) {
+  return (
+    <p
+      style={{
+        padding: '12px',
+        backgroundColor: '#fef9c3',
+        border: '1px solid #fde047',
+        borderRadius: '6px',
+        color: '#854d0e',
+        fontSize: '13px',
+      }}
+    >
+      <strong>{count}</strong> {count === 1 ? 'company' : 'companies'} failed to fetch and{' '}
+      {count === 1 ? 'is' : 'are'} missing from this table (temporary fetch error, not excluded on purpose).
+      Click &quot;Retry Failed Tickers&quot; below to retry just {count === 1 ? 'it' : 'those'}.
+    </p>
   );
 }

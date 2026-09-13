@@ -28,12 +28,12 @@ app/
                                 with its own Refresh button (see below)
   login/page.tsx               Sign-in page (Google OAuth in production)
   api/analyze/route.ts          Server-side proxy to the RAG API
-  api/research/volatility/indicator/{route,start,status,retry}.ts
+  api/research/volatility/indicator/{route,start,status,retryOnlyFailed}.ts
                                 Volatility-indicator table: route.ts reads
                                 the latest scheduled scan, start/status
-                                drive a manual Refresh, retry re-fetches
-                                just the tickers that failed
-  api/research/volatility/rebound/{route,start,status,retry}.ts
+                                drive a manual Refresh, retryOnlyFailed
+                                re-fetches just the tickers that failed
+  api/research/volatility/rebound/{route,start,status,retryOnlyFailed}.ts
                                 Crash-rebound table, same route shape
   api/research/volatility/today/{start,status}.ts
                                 Big-loss-today table - always live/
