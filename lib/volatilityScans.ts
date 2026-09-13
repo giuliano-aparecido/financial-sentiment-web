@@ -64,6 +64,10 @@ export const THRESHOLD_OPTIONS = [2, 3, 5] as const;
 
 const POLL_INTERVAL_MS = 5000;
 
+// 24 * 5s = ~2min budget before giving up and showing a real error -
+// comfortably above the research backend's own cold-start window (Render
+// free tier, up to ~1min; see app/research/volatility/page.tsx's
+// BackendStartingNotice).
 const BACKEND_STARTUP_MAX_ATTEMPTS = 24;
 
 const UNIVERSE_LABEL = 'chf500m-plus-ex-smi';
@@ -159,6 +163,38 @@ export function toggleSort(current: SortState, key: string): SortState {
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
 }
 
+function confirmScanStart(lastRunIso: string | null, warning: string): boolean {
+  const lastRunText = lastRunIso
+    ? `The last scan ran at ${new Date(lastRunIso).toLocaleString()}.`
+    : 'No scan has run yet.';
+  return window.confirm(`${lastRunText}\n\n${warning} Continue?`);
+}
+
+function downloadScanCsv<T>(rows: T[], columns: CsvColumn<T>[], filename: string): void {
+  downloadCsv(filename, rowsToCsv(rows, columns));
+}
+
+async function triggerScanMutation({
+  url,
+  stopPolling,
+  fetchLatest,
+  setTriggerDropped,
+  setError,
+}: {
+  url: string;
+  stopPolling: () => void;
+  fetchLatest: () => void;
+  setTriggerDropped: (dropped: boolean) => void;
+  setError: (error: string) => void;
+}): Promise<void> {
+  setError('');
+  setTriggerDropped(false);
+  const outcome = await runBackendAwareMutation({ url, stopPolling, fetchLatest, setTriggerDropped, setError });
+  if (!outcome.ok) return;
+  stopPolling();
+  fetchLatest();
+}
+
 function usePollController() {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -215,51 +251,36 @@ export function useReboundScan() {
   };
 
   const handleRefresh = async () => {
-    const lastRunText = result.scan_run_at
-      ? `The last scan ran at ${new Date(result.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan makes live Yahoo Finance calls and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    if (!confirmScanStart(result.scan_run_at, 'Running a new scan makes live Yahoo Finance calls and can take several minutes.')) return;
+    await triggerScanMutation({
       url: '/api/research/volatility/rebound/start',
       stopPolling,
       fetchLatest: fetchResult,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult();
   };
 
   const handleRetry = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/rebound/retryOnlyFailed',
       stopPolling,
       fetchLatest: fetchResult,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult();
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, CRASH_REBOUND_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-crash-rebound-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, CRASH_REBOUND_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-crash-rebound-${todayIso()}.csv`);
   };
 
   useEffect(() => {
     fetchResult();
     return stopPolling;
+    // Intentionally mount-once: fetchResult is recreated every render (it
+    // closes over state setters), so listing it would re-run this effect
+    // on every render instead of once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -301,28 +322,25 @@ export function useTodayScan() {
   };
 
   const handleRefresh = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/today/start',
       stopPolling,
       fetchLatest: pollStatus,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    pollStatus();
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, TODAY_SCREENER_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-today-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, TODAY_SCREENER_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-today-${todayIso()}.csv`);
   };
 
   useEffect(() => {
     pollStatus();
     return stopPolling;
+    // Intentionally mount-once: pollStatus is recreated every render (it
+    // closes over state setters), so listing it would re-run this effect
+    // on every render instead of once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -371,52 +389,45 @@ export function useIndicatorScan() {
   };
 
   const handleRefresh = async () => {
-    const lastRunText = result.scan_run_at
-      ? `The last scan ran at ${new Date(result.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    if (
+      !confirmScanStart(
+        result.scan_run_at,
+        'Running a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes.',
+      )
+    ) {
+      return;
+    }
+    await triggerScanMutation({
       url: `/api/research/volatility/indicator/start?threshold_pct=${threshold}`,
       stopPolling,
       fetchLatest: () => fetchResult(threshold),
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult(threshold);
   };
 
   const handleRetry = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/indicator/retryOnlyFailed',
       stopPolling,
       fetchLatest: () => fetchResult(threshold),
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult(threshold);
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, VOLATILITY_INDICATOR_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-volatility-indicator-${threshold}pct-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, VOLATILITY_INDICATOR_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-volatility-indicator-${threshold}pct-${todayIso()}.csv`);
   };
 
   useEffect(() => {
     stopPolling();
     fetchResult(threshold);
     return stopPolling;
+    // Intentionally re-runs only on threshold change: fetchResult is
+    // recreated every render (it closes over state setters), so listing it
+    // would re-run this effect on every render instead of only when the
+    // threshold actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threshold]);
 
