@@ -118,7 +118,7 @@ export async function runBackendAwareFetch({
   }
 }
 
-interface RunBackendAwareMutationOptions {
+export interface RunBackendAwareMutationOptions {
   url: string;
   stopPolling: () => void;
   fetchLatest: () => void;

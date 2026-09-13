@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { runBackendAwareFetch, runBackendAwareMutation } from '@/lib/backendAwareFetch';
+import { runBackendAwareFetch, runBackendAwareMutation, type RunBackendAwareMutationOptions } from '@/lib/backendAwareFetch';
 
 export interface CrashReboundRow {
   ticker: string;
@@ -159,6 +159,32 @@ export function toggleSort(current: SortState, key: string): SortState {
   return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
 }
 
+function confirmScanStart(lastRunIso: string | null, warning: string): boolean {
+  const lastRunText = lastRunIso
+    ? `The last scan ran at ${new Date(lastRunIso).toLocaleString()}.`
+    : 'No scan has run yet.';
+  return window.confirm(`${lastRunText}\n\n${warning} Continue?`);
+}
+
+function downloadScanCsv<T>(rows: T[], columns: CsvColumn<T>[], filename: string): void {
+  downloadCsv(filename, rowsToCsv(rows, columns));
+}
+
+async function triggerScanMutation({
+  url,
+  stopPolling,
+  fetchLatest,
+  setTriggerDropped,
+  setError,
+}: RunBackendAwareMutationOptions): Promise<void> {
+  setError('');
+  setTriggerDropped(false);
+  const outcome = await runBackendAwareMutation({ url, stopPolling, fetchLatest, setTriggerDropped, setError });
+  if (!outcome.ok) return;
+  stopPolling();
+  fetchLatest();
+}
+
 function usePollController() {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -215,46 +241,28 @@ export function useReboundScan() {
   };
 
   const handleRefresh = async () => {
-    const lastRunText = result.scan_run_at
-      ? `The last scan ran at ${new Date(result.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan makes live Yahoo Finance calls and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    if (!confirmScanStart(result.scan_run_at, 'Running a new scan makes live Yahoo Finance calls and can take several minutes.')) return;
+    await triggerScanMutation({
       url: '/api/research/volatility/rebound/start',
       stopPolling,
       fetchLatest: fetchResult,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult();
   };
 
   const handleRetry = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/rebound/retryOnlyFailed',
       stopPolling,
       fetchLatest: fetchResult,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult();
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, CRASH_REBOUND_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-crash-rebound-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, CRASH_REBOUND_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-crash-rebound-${todayIso()}.csv`);
   };
 
   useEffect(() => {
@@ -301,23 +309,17 @@ export function useTodayScan() {
   };
 
   const handleRefresh = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/today/start',
       stopPolling,
       fetchLatest: pollStatus,
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    pollStatus();
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, TODAY_SCREENER_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-today-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, TODAY_SCREENER_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-today-${todayIso()}.csv`);
   };
 
   useEffect(() => {
@@ -371,46 +373,35 @@ export function useIndicatorScan() {
   };
 
   const handleRefresh = async () => {
-    const lastRunText = result.scan_run_at
-      ? `The last scan ran at ${new Date(result.scan_run_at).toLocaleString()}.`
-      : 'No scan has run yet.';
-    const confirmed = window.confirm(
-      `${lastRunText}\n\nRunning a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes. Continue?`,
-    );
-    if (!confirmed) return;
-
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    if (
+      !confirmScanStart(
+        result.scan_run_at,
+        'Running a new scan covers all three thresholds, makes live Yahoo Finance calls, and can take several minutes.',
+      )
+    ) {
+      return;
+    }
+    await triggerScanMutation({
       url: `/api/research/volatility/indicator/start?threshold_pct=${threshold}`,
       stopPolling,
       fetchLatest: () => fetchResult(threshold),
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult(threshold);
   };
 
   const handleRetry = async () => {
-    setError('');
-    setTriggerDropped(false);
-    const outcome = await runBackendAwareMutation({
+    await triggerScanMutation({
       url: '/api/research/volatility/indicator/retryOnlyFailed',
       stopPolling,
       fetchLatest: () => fetchResult(threshold),
       setTriggerDropped,
       setError,
     });
-    if (!outcome.ok) return;
-    stopPolling();
-    fetchResult(threshold);
   };
 
   const handleDownload = () => {
-    const csv = rowsToCsv(sortedRows, VOLATILITY_INDICATOR_CSV_COLUMNS);
-    downloadCsv(`swiss-${UNIVERSE_LABEL}-volatility-indicator-${threshold}pct-${todayIso()}.csv`, csv);
+    downloadScanCsv(sortedRows, VOLATILITY_INDICATOR_CSV_COLUMNS, `swiss-${UNIVERSE_LABEL}-volatility-indicator-${threshold}pct-${todayIso()}.csv`);
   };
 
   useEffect(() => {
