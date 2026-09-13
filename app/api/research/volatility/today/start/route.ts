@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
-import { guardBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 
-// See ../../rebound/start/route.ts for the full reasoning this mirrors
-// (independent job on the backend, no time-window cooldown - single-
-// flight is the real protection).
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
-  const guard = await guardBackendRequest({ isAllowed: isResearchAllowed });
+  // No rate-limit cooldown here - the backend's single-flight-per-scan-type
+  // behavior is what actually prevents duplicate scans.
+  const guard = await authorizeBackendRequest({ isAllowed: isResearchAllowed });
   if (guard instanceof NextResponse) return guard;
 
   return fetchUpstreamJson('/api/research/volatility/today/start', {

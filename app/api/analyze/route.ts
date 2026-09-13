@@ -1,25 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAllowedEmail } from '@/lib/auth';
-import { guardBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 
-// The API's own inference call can take up to 280s against the Modal
-// scale-to-zero backend - a real cold start alone measured ~120s live, well
-// past what a 45s/60s budget here assumed (that was sized for the old
-// always-warm HF Inference Endpoint / Colab tunnel). 300 is Vercel Hobby's
-// actual hard cap (with Fluid Compute) - see the 290s timeout below for
-// why this route's own fetch aborts a little before that ceiling instead of
-// letting Vercel hard-kill the function mid-request.
+// The API's own inference call can take up to 280s against the Modal scale-to-zero backend;
+// 300 is Vercel Hobby's actual hard cap - the 290s fetch timeout below aborts just under that
+// ceiling so this route returns a clean 504 instead of Vercel hard-killing it mid-request.
 export const maxDuration = 300;
 
-// Matches the API's own QueryRequest max_length - reject oversized bodies
-// here instead of forwarding them and letting the upstream 422 do the work.
+// Matches the upstream API's own QueryRequest max_length.
 const MAX_QUERY_LENGTH = 2000;
 
 export async function POST(request: NextRequest) {
-  // No keyPrefix: this route intentionally shares the default rate-limit
-  // bucket (session email alone), kept separate from each volatility
-  // route's own "research-*"-prefixed bucket - see lib/rateLimit.ts.
-  const guard = await guardBackendRequest({ isAllowed: isAllowedEmail, rateLimit: {} });
+  // No keyPrefix: deliberately shares the default rate-limit bucket rather than
+  // an unset one (see lib/rateLimit.ts).
+  const guard = await authorizeBackendRequest({ isAllowed: isAllowedEmail, rateLimit: {} });
   if (guard instanceof NextResponse) return guard;
 
   let body: unknown;

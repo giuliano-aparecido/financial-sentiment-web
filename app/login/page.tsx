@@ -4,6 +4,14 @@ import { Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh' }} />}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
@@ -67,13 +75,5 @@ function LoginContent() {
         </button>
       </div>
     </main>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: '100vh' }} />}>
-      <LoginContent />
-    </Suspense>
   );
 }

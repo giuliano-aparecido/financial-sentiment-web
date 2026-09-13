@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
-import { guardBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 
-// Reads the latest scheduled scan result for one threshold_pct - see
-// ../rebound/route.ts's own comment for why this is a plain read now,
-// not a scan trigger (financial-sentiment-api's scheduler.py runs this
-// monthly, for all three thresholds, off one shared discovery pass).
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +11,7 @@ const RESEARCH_RESULT_MAX_REQUESTS = 30;
 const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
 
 export async function GET(request: NextRequest) {
-  const guard = await guardBackendRequest({
+  const guard = await authorizeBackendRequest({
     isAllowed: isResearchAllowed,
     rateLimit: { keyPrefix: 'research-indicator-result', windowMs: RESEARCH_RESULT_WINDOW_MS, maxRequests: RESEARCH_RESULT_MAX_REQUESTS },
   });

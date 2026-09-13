@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
-import { guardBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ const RESEARCH_STATUS_WINDOW_MS = 60_000;
 const RESEARCH_STATUS_MAX_REQUESTS = 30;
 
 export async function GET() {
-  const guard = await guardBackendRequest({
+  const guard = await authorizeBackendRequest({
     isAllowed: isResearchAllowed,
     rateLimit: { keyPrefix: 'research-today-status', windowMs: RESEARCH_STATUS_WINDOW_MS, maxRequests: RESEARCH_STATUS_MAX_REQUESTS },
   });

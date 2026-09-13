@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
-import { guardBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 
 // Entirely separate route from ../rebound/start and ../today/start -
 // this table has its own independent Refresh button + threshold
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
 
 export async function POST(request: NextRequest) {
-  const guard = await guardBackendRequest({ isAllowed: isResearchAllowed });
+  const guard = await authorizeBackendRequest({ isAllowed: isResearchAllowed });
   if (guard instanceof NextResponse) return guard;
 
   // Validated here too, not just trusted to match the frontend's own

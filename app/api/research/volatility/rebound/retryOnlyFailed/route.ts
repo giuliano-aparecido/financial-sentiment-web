@@ -6,12 +6,10 @@ export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
-  // No rate-limit cooldown here - the backend's single-flight-per-scan-type
-  // behavior is what actually prevents duplicate scans.
   const guard = await authorizeBackendRequest({ isAllowed: isResearchAllowed });
   if (guard instanceof NextResponse) return guard;
 
-  return fetchUpstreamJson('/api/research/volatility/rebound/start', {
+  return fetchUpstreamJson('/api/research/volatility/rebound/retry', {
     method: 'POST',
     timeoutMs: 10_000,
     backendLabel: 'research',

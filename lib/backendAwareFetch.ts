@@ -1,11 +1,11 @@
-import type { MutableRefObject } from 'react';
+import type { RefObject } from 'react';
 
 export function isBackendUnavailableStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
 interface ScheduleBackendRetryOptions {
-  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  timerRef: RefObject<ReturnType<typeof setTimeout> | null>;
   setBackendStarting: (starting: boolean) => void;
   attempt: number;
   retry: (nextAttempt: number) => void;
@@ -46,8 +46,8 @@ export function fallBackToPassiveRefresh({
 interface RunBackendAwareFetchOptions {
   url: string;
   attempt: number;
-  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  abortControllerRef: MutableRefObject<AbortController | null>;
+  timerRef: RefObject<ReturnType<typeof setTimeout> | null>;
+  abortControllerRef: RefObject<AbortController | null>;
   setBackendStarting: (starting: boolean) => void;
   setTriggerDropped: (dropped: boolean) => void;
   setError: (error: string) => void;
@@ -59,14 +59,6 @@ interface RunBackendAwareFetchOptions {
   maxAttempts: number;
 }
 
-// abortControllerRef makes each call supersede whatever it started: a
-// newer fetch for the same ref (e.g. switching the indicator threshold,
-// or double-clicking Refresh) aborts the previous one's actual network
-// request and, via the `abortControllerRef.current !== controller` checks
-// below, ignores that request's response even if it had already landed -
-// otherwise a stale response for an old selection could resolve after a
-// fresher one and silently overwrite it, and both would fight over the
-// same timerRef for any further polling.
 export async function runBackendAwareFetch({
   url,
   attempt,
