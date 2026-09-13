@@ -64,6 +64,10 @@ export const THRESHOLD_OPTIONS = [2, 3, 5] as const;
 
 const POLL_INTERVAL_MS = 5000;
 
+// 24 * 5s = ~2min budget before giving up and showing a real error -
+// comfortably above the research backend's own cold-start window (Render
+// free tier, up to ~1min; see app/research/volatility/page.tsx's
+// BackendStartingNotice).
 const BACKEND_STARTUP_MAX_ATTEMPTS = 24;
 
 const UNIVERSE_LABEL = 'chf500m-plus-ex-smi';
@@ -274,6 +278,9 @@ export function useReboundScan() {
   useEffect(() => {
     fetchResult();
     return stopPolling;
+    // Intentionally mount-once: fetchResult is recreated every render (it
+    // closes over state setters), so listing it would re-run this effect
+    // on every render instead of once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -331,6 +338,9 @@ export function useTodayScan() {
   useEffect(() => {
     pollStatus();
     return stopPolling;
+    // Intentionally mount-once: pollStatus is recreated every render (it
+    // closes over state setters), so listing it would re-run this effect
+    // on every render instead of once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -414,6 +424,10 @@ export function useIndicatorScan() {
     stopPolling();
     fetchResult(threshold);
     return stopPolling;
+    // Intentionally re-runs only on threshold change: fetchResult is
+    // recreated every render (it closes over state setters), so listing it
+    // would re-run this effect on every render instead of only when the
+    // threshold actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threshold]);
 

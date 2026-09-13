@@ -12,6 +12,15 @@ import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
+// No checkRateLimit cooldown here as of 2026-08-19 (previously a
+// "research-indicator:" 1-per-5-minutes bucket, removed at the user's
+// explicit request) - single-flight on the backend is the real
+// protection, same as the other /start routes (see ../rebound/start/
+// route.ts and ../../today/start/route.ts). Matters especially here: the
+// user explicitly wants to be able to start a new scan immediately after
+// changing the threshold, which a flat per-user cooldown would have
+// blocked regardless of whether the threshold actually changed.
+
 const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
 
 export async function POST(request: NextRequest) {

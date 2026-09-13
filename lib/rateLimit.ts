@@ -7,7 +7,12 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 // serverless instance has its own memory, and a cold start wipes it, so a
 // determined caller can get more than maxRequests by landing on different
 // instances. It's a courtesy limit for one signed-in user's own mistakes
-// (e.g. an accidental double-click loop), not a security boundary.
+// (e.g. an accidental double-click loop), not a security boundary - the
+// backend API's own global rate limit is the real backstop, and matters
+// more for the research routes specifically than for /api/analyze: a
+// research scan fans out to a yfinance call per ticker across the whole
+// universe, not one inference call, so a bypass here is far more
+// expensive there than on /api/analyze.
 export function checkRateLimit(
   key: string,
   windowMs: number = DEFAULT_WINDOW_MS,
