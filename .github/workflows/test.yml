@@ -22,3 +22,11 @@ jobs:
       - run: npx tsc --noEmit
 
       - run: npm test
+
+      - run: npm run build
+        env:
+          # `next build` catches Edge Runtime issues in proxy.ts that
+          # tsc alone won't (see README's "Tests / build" section), but
+          # lib/auth.ts refuses to even evaluate without a real
+          # NEXTAUTH_SECRET outside development - any value works here.
+          NEXTAUTH_SECRET: ci-dummy-secret-not-for-real-use

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
 import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { THRESHOLD_OPTION_STRINGS } from '@/lib/volatilityThresholds';
 
 // Entirely separate route from ../rebound/start and ../today/start -
 // this table has its own independent Refresh button + threshold
@@ -12,7 +13,7 @@ import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
+const ALLOWED_THRESHOLD_PCTS = new Set(THRESHOLD_OPTION_STRINGS);
 
 export async function POST(request: NextRequest) {
   const guard = await authorizeBackendRequest({ isAllowed: isResearchAllowed });
