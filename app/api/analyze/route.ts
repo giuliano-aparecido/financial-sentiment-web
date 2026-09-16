@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return fetchUpstreamJson('/api/analyze', {
+  const model = request.nextUrl.searchParams.get('model') || 'llama';
+  const backendUrl = `/api/analyze?model=${encodeURIComponent(model)}`;
+
+  return fetchUpstreamJson(backendUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_query: userQuery }),

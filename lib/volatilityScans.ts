@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runBackendAwareFetch, runBackendAwareMutation, type RunBackendAwareMutationOptions } from '@/lib/backendAwareFetch';
+// Re-exported (not just imported) so app/research/volatility/page.tsx can
+// keep importing THRESHOLD_OPTIONS from here as before; the values
+// themselves live in volatilityThresholds.ts so the API route handlers
+// can share them without pulling this client-hooks module into their
+// server bundle.
+import { THRESHOLD_OPTIONS } from '@/lib/volatilityThresholds';
+export { THRESHOLD_OPTIONS };
 
 export interface CrashReboundRow {
   ticker: string;
@@ -60,8 +67,6 @@ export interface TodayScanStatus {
   error?: string;
 }
 
-export const THRESHOLD_OPTIONS = [2, 3, 5] as const;
-
 const POLL_INTERVAL_MS = 5000;
 
 const BACKEND_STARTUP_MAX_ATTEMPTS = 24;
@@ -109,9 +114,27 @@ const VOLATILITY_INDICATOR_CSV_COLUMNS: CsvColumn<VolatilityIndicatorRow>[] = [
   { key: 'total_days', label: 'Total days' },
 ];
 
-function escapeCsvValue(value: unknown): string {
+// Formula-injection mitigation: a string value starting with =, +, -, or @
+// can be interpreted as a formula by Excel/Sheets when the CSV is opened,
+// so a leading apostrophe is prefixed to force it to be read as plain
+// text - the standard mitigation those tools respect. Applied before the
+// existing quote/comma/newline escaping below.
+//
+// Only applied when the original value is a string (free text from an
+// external data provider, e.g. name/sector) - not to numbers. Several
+// numeric columns (drop_pct, change_pct) are routinely negative, and
+// their string form also starts with "-"; Excel/Sheets already parses a
+// plain negative number as a number rather than a formula, so prefixing
+// it would just turn a legitimate number into text (breaking
+// SUM/AVERAGE over that column) without closing any real gap.
+const FORMULA_INJECTION_PREFIX_PATTERN = /^[=+\-@]/;
+
+export function escapeCsvValue(value: unknown): string {
   if (value == null) return '';
-  const str = String(value);
+  let str = String(value);
+  if (typeof value === 'string' && FORMULA_INJECTION_PREFIX_PATTERN.test(str)) {
+    str = `'${str}`;
+  }
   return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 

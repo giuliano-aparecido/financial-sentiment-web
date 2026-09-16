@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isResearchAllowed } from '@/lib/researchAccess';
 import { authorizeBackendRequest, fetchUpstreamJson } from '@/lib/backendProxy';
+import { THRESHOLD_OPTION_STRINGS } from '@/lib/volatilityThresholds';
 
 export const maxDuration = 15;
 export const dynamic = 'force-dynamic';
@@ -8,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const RESEARCH_RESULT_WINDOW_MS = 60_000;
 const RESEARCH_RESULT_MAX_REQUESTS = 30;
 
-const ALLOWED_THRESHOLD_PCTS = new Set(['2', '3', '5']);
+const ALLOWED_THRESHOLD_PCTS = new Set(THRESHOLD_OPTION_STRINGS);
 
 export async function GET(request: NextRequest) {
   const guard = await authorizeBackendRequest({

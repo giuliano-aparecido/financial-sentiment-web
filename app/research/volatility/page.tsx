@@ -9,7 +9,68 @@ import {
   useIndicatorScan,
   toggleSort,
   type SortState,
+  type CrashReboundRow,
+  type TodayScreenerRow,
+  type VolatilityIndicatorRow,
 } from '@/lib/volatilityScans';
+
+// NOTE: only the rebound table's ADTV/Gain % columns carry a `title`
+// tooltip below - that asymmetry is intentional (preserved from before
+// this refactor), not a bug to "fix" by adding tooltips to the other
+// two tables as a drive-by cleanup.
+const TODAY_SCREENER_COLUMNS: VolatilityColumn<TodayScreenerRow>[] = [
+  { key: 'ticker', label: 'Ticker', renderCell: (row) => <TickerLink ticker={row.ticker} /> },
+  { key: 'name', label: 'Name', renderCell: (row) => row.name },
+  { key: 'sector', label: 'Sector', renderCell: (row) => row.sector ?? 'N/A' },
+  { key: 'market_cap', label: 'Market cap', renderCell: (row) => formatMarketCap(row.market_cap) },
+  { key: 'price', label: 'Price', renderCell: (row) => (row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A') },
+  {
+    key: 'change_pct',
+    label: 'Change %',
+    cellStyle: (row) => ({
+      color: row.change_pct == null ? '#666' : row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666',
+    }),
+    renderCell: (row) => formatPct(row.change_pct, true),
+  },
+  { key: 'volume_today', label: 'Volume today', renderCell: (row) => formatVolume(row.volume_today) },
+];
+
+const VOLATILITY_INDICATOR_COLUMNS: VolatilityColumn<VolatilityIndicatorRow>[] = [
+  { key: 'ticker', label: 'Ticker', renderCell: (row) => <TickerLink ticker={row.ticker} /> },
+  { key: 'name', label: 'Name', renderCell: (row) => row.name },
+  { key: 'sector', label: 'Sector', renderCell: (row) => row.sector ?? 'N/A' },
+  { key: 'market_cap', label: 'Market cap', renderCell: (row) => formatMarketCap(row.market_cap) },
+  { key: 'loss_days', label: 'Loss days', cellStyle: () => ({ color: '#dc2626' }), renderCell: (row) => row.loss_days },
+  { key: 'gain_days', label: 'Gain days', cellStyle: () => ({ color: '#16a34a' }), renderCell: (row) => row.gain_days },
+  { key: 'total_days', label: 'Total days', renderCell: (row) => <strong>{row.total_days}</strong> },
+];
+
+const CRASH_REBOUND_COLUMNS: VolatilityColumn<CrashReboundRow>[] = [
+  { key: 'ticker', label: 'Ticker', renderCell: (row) => <TickerLink ticker={row.ticker} /> },
+  { key: 'name', label: 'Name', renderCell: (row) => row.name },
+  { key: 'sector', label: 'Sector', renderCell: (row) => row.sector ?? 'N/A' },
+  { key: 'market_cap', label: 'Market cap', renderCell: (row) => formatMarketCap(row.market_cap) },
+  {
+    key: 'avg_volume_10d',
+    label: 'ADTV',
+    title: 'Average daily trading volume over the last 10 days.',
+    renderCell: (row) => formatVolume(row.avg_volume_10d),
+  },
+  { key: 'loss_date', label: 'Loss date', renderCell: (row) => row.loss_date },
+  { key: 'loss_close', label: 'Loss close', renderCell: (row) => formatPrice(row.loss_close) },
+  { key: 'drop_pct', label: 'Drop %', cellStyle: () => ({ color: '#dc2626' }), renderCell: (row) => formatPct(row.drop_pct) },
+  { key: 'days_to_rebound', label: 'Days to rebound', renderCell: (row) => row.days_to_rebound },
+  { key: 'gain_date', label: 'Gain date', renderCell: (row) => row.gain_date },
+  { key: 'gain_close', label: 'Gain close', renderCell: (row) => formatPrice(row.gain_close) },
+  {
+    key: 'gain_pct',
+    label: 'Gain %',
+    title:
+      "Cumulative gain from the crash-day close to the close on the rebound day (see Days to rebound) - not that day's own daily move.",
+    cellStyle: () => ({ color: '#16a34a' }),
+    renderCell: (row) => formatPct(row.gain_pct, true),
+  },
+];
 
 export default function VolatilityResearchPage() {
   const { data: session } = useSession();
@@ -124,38 +185,13 @@ export default function VolatilityResearchPage() {
         {todayStatus.status === 'done' && (todayStatus.today_screener?.length ?? 0) > 0 && (
           <>
             <DownloadCsvButton onClick={handleDownloadTodayScreener} />
-            <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
-              <thead>
-                <tr>
-                  <SortableHeader label="Ticker" sortKey="ticker" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Name" sortKey="name" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Sector" sortKey="sector" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Market cap" sortKey="market_cap" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Price" sortKey="price" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Change %" sortKey="change_pct" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                  <SortableHeader label="Volume today" sortKey="volume_today" sort={todaySort} onSort={(k) => setTodaySort(toggleSort(todaySort, k))} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTodayScreener.map((row, i) => (
-                  <tr key={`${row.ticker}-${i}`}>
-                    <td style={cellStyle}>
-                      <TickerLink ticker={row.ticker} />
-                    </td>
-                    <td style={cellStyle}>{row.name}</td>
-                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
-                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
-                    <td style={cellStyle}>{row.price != null ? `CHF ${row.price.toFixed(2)}` : 'N/A'}</td>
-                    <td style={{ ...cellStyle, color: row.change_pct == null ? '#666' : row.change_pct > 0 ? '#16a34a' : row.change_pct < 0 ? '#dc2626' : '#666' }}>
-                      {formatPct(row.change_pct, true)}
-                    </td>
-                    <td style={cellStyle}>{formatVolume(row.volume_today)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            <VolatilitySortableTable
+              columns={TODAY_SCREENER_COLUMNS}
+              rows={sortedTodayScreener}
+              sort={todaySort}
+              onSort={(key) => setTodaySort(toggleSort(todaySort, key))}
+              rowKey={(row, i) => `${row.ticker}-${i}`}
+            />
           </>
         )}
       </section>
@@ -223,38 +259,13 @@ export default function VolatilityResearchPage() {
         {!indicatorResult.is_running && indicatorResult.rows.length > 0 && (
           <>
             <DownloadCsvButton onClick={handleDownloadVolatilityIndicator} />
-            <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
-              <thead>
-                <tr>
-                  <SortableHeader label="Ticker" sortKey="ticker" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Name" sortKey="name" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Sector" sortKey="sector" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Market cap" sortKey="market_cap" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Loss days" sortKey="loss_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Gain days" sortKey="gain_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                  <SortableHeader label="Total days" sortKey="total_days" sort={indicatorSort} onSort={(k) => setIndicatorSort(toggleSort(indicatorSort, k))} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedVolatilityIndicator.map((row, i) => (
-                  <tr key={`${row.ticker}-${i}`}>
-                    <td style={cellStyle}>
-                      <TickerLink ticker={row.ticker} />
-                    </td>
-                    <td style={cellStyle}>{row.name}</td>
-                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
-                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
-                    <td style={{ ...cellStyle, color: '#dc2626' }}>{row.loss_days}</td>
-                    <td style={{ ...cellStyle, color: '#16a34a' }}>{row.gain_days}</td>
-                    <td style={cellStyle}>
-                      <strong>{row.total_days}</strong>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            <VolatilitySortableTable
+              columns={VOLATILITY_INDICATOR_COLUMNS}
+              rows={sortedVolatilityIndicator}
+              sort={indicatorSort}
+              onSort={(key) => setIndicatorSort(toggleSort(indicatorSort, key))}
+              rowKey={(row, i) => `${row.ticker}-${i}`}
+            />
           </>
         )}
       </section>
@@ -306,58 +317,13 @@ export default function VolatilityResearchPage() {
         {!reboundResult.is_running && reboundResult.rows.length > 0 && (
           <>
             <DownloadCsvButton onClick={handleDownloadCrashRebound} />
-            <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
-              <thead>
-                <tr>
-                  <SortableHeader label="Ticker" sortKey="ticker" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Name" sortKey="name" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Sector" sortKey="sector" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Market cap" sortKey="market_cap" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader
-                    label="ADTV"
-                    sortKey="avg_volume_10d"
-                    sort={crashSort}
-                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
-                    title="Average daily trading volume over the last 10 days."
-                  />
-                  <SortableHeader label="Loss date" sortKey="loss_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Loss close" sortKey="loss_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Drop %" sortKey="drop_pct" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Days to rebound" sortKey="days_to_rebound" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain date" sortKey="gain_date" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader label="Gain close" sortKey="gain_close" sort={crashSort} onSort={(k) => setCrashSort(toggleSort(crashSort, k))} />
-                  <SortableHeader
-                    label="Gain %"
-                    sortKey="gain_pct"
-                    sort={crashSort}
-                    onSort={(k) => setCrashSort(toggleSort(crashSort, k))}
-                    title="Cumulative gain from the crash-day close to the close on the rebound day (see Days to rebound) - not that day's own daily move."
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedCrashRebound.map((row, i) => (
-                  <tr key={`${row.ticker}-${row.loss_date}-${i}`}>
-                    <td style={cellStyle}>
-                      <TickerLink ticker={row.ticker} />
-                    </td>
-                    <td style={cellStyle}>{row.name}</td>
-                    <td style={cellStyle}>{row.sector ?? 'N/A'}</td>
-                    <td style={cellStyle}>{formatMarketCap(row.market_cap)}</td>
-                    <td style={cellStyle}>{formatVolume(row.avg_volume_10d)}</td>
-                    <td style={cellStyle}>{row.loss_date}</td>
-                    <td style={cellStyle}>{formatPrice(row.loss_close)}</td>
-                    <td style={{ ...cellStyle, color: '#dc2626' }}>{formatPct(row.drop_pct)}</td>
-                    <td style={cellStyle}>{row.days_to_rebound}</td>
-                    <td style={cellStyle}>{row.gain_date}</td>
-                    <td style={cellStyle}>{formatPrice(row.gain_close)}</td>
-                    <td style={{ ...cellStyle, color: '#16a34a' }}>{formatPct(row.gain_pct, true)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
+            <VolatilitySortableTable
+              columns={CRASH_REBOUND_COLUMNS}
+              rows={sortedCrashRebound}
+              sort={crashSort}
+              onSort={(key) => setCrashSort(toggleSort(crashSort, key))}
+              rowKey={(row, i) => `${row.ticker}-${row.loss_date}-${i}`}
+            />
           </>
         )}
       </section>
@@ -395,6 +361,64 @@ const headerCellStyle: React.CSSProperties = {
   borderBottom: '2px solid #ddd',
   whiteSpace: 'nowrap',
 };
+
+interface VolatilityColumn<T> {
+  key: Extract<keyof T, string>;
+  label: string;
+  // Optional header tooltip - only ADTV and Gain % on the rebound table
+  // use this today (see the NOTE above TODAY_SCREENER_COLUMNS).
+  title?: string;
+  // Per-row style override (e.g. red/green for gains vs. losses),
+  // merged on top of the shared cellStyle base.
+  cellStyle?: (row: T) => React.CSSProperties;
+  renderCell: (row: T) => React.ReactNode;
+}
+
+function VolatilitySortableTable<T>({
+  columns,
+  rows,
+  sort,
+  onSort,
+  rowKey,
+}: {
+  columns: VolatilityColumn<T>[];
+  rows: T[];
+  sort: SortState;
+  onSort: (key: string) => void;
+  rowKey: (row: T, index: number) => string;
+}) {
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <SortableHeader
+                key={column.key}
+                label={column.label}
+                sortKey={column.key}
+                sort={sort}
+                onSort={onSort}
+                title={column.title}
+              />
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={rowKey(row, i)}>
+              {columns.map((column) => (
+                <td key={column.key} style={column.cellStyle ? { ...cellStyle, ...column.cellStyle(row) } : cellStyle}>
+                  {column.renderCell(row)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function DownloadCsvButton({ onClick }: { onClick: () => void }) {
   return (
