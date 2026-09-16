@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import { signOutToLogin } from '@/lib/signOutToLogin';
 
 interface AnalysisResult {
@@ -21,6 +22,8 @@ interface AnalysisResult {
 
 export default function Home() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const model = searchParams.get('model') || 'llama';
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -34,7 +37,7 @@ export default function Home() {
     setResult(null);
 
     try {
-      const data = await fetchAnalysis(query);
+      const data = await fetchAnalysis(query, model);
       setResult(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to analyze query. Please check your backend status.';
@@ -217,8 +220,8 @@ function DataCard({ title, content }: { title: string; content?: string }) {
   );
 }
 
-async function fetchAnalysis(query: string): Promise<AnalysisResult> {
-  const response = await fetch('/api/analyze', {
+async function fetchAnalysis(query: string, model: string): Promise<AnalysisResult> {
+  const response = await fetch(`/api/analyze?model=${encodeURIComponent(model)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_query: query }),
