@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { signOutToLogin } from '@/lib/signOutToLogin';
@@ -21,6 +21,14 @@ interface AnalysisResult {
 }
 
 export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const model = searchParams.get('model') || 'llama';
