@@ -20,8 +20,8 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 const AUTHED_SESSION = { user: { email: 'user@example.com' } };
 
-function makeRequest(body: unknown) {
-  return new NextRequest('http://localhost/api/analyze', {
+function makeRequest(body: unknown, query = '') {
+  return new NextRequest(`http://localhost/api/analyze${query}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -121,5 +121,29 @@ describe('POST /api/analyze', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.ticker).toBe('AAPL');
+  });
+
+  it('calls the upstream without ?model when the request has none, so the API applies its own default', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/analyze/route');
+    await POST(makeRequest({ user_query: 'AAPL' }));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://rag-api.example.com/api/analyze');
+  });
+
+  it('treats an empty ?model= as absent so the API default applies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/analyze/route');
+    await POST(makeRequest({ user_query: 'AAPL' }, '?model='));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://rag-api.example.com/api/analyze');
+  });
+
+  it('forwards ?model to the upstream verbatim when the request has one', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/analyze/route');
+    await POST(makeRequest({ user_query: 'AAPL' }, '?model=apertus'));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://rag-api.example.com/api/analyze?model=apertus');
   });
 });

@@ -31,7 +31,7 @@ export default function Home() {
 function HomeContent() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
-  const model = searchParams.get('model') || 'llama';
+  const model = searchParams.get('model');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -228,8 +228,9 @@ function DataCard({ title, content }: { title: string; content?: string }) {
   );
 }
 
-async function fetchAnalysis(query: string, model: string): Promise<AnalysisResult> {
-  const response = await fetch(`/api/analyze?model=${encodeURIComponent(model)}`, {
+async function fetchAnalysis(query: string, model: string | null): Promise<AnalysisResult> {
+  const url = model ? `/api/analyze?model=${encodeURIComponent(model)}` : '/api/analyze';
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_query: query }),
