@@ -131,6 +131,14 @@ describe('POST /api/analyze', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://rag-api.example.com/api/analyze');
   });
 
+  it('treats an empty ?model= as absent so the API default applies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('../app/api/analyze/route');
+    await POST(makeRequest({ user_query: 'AAPL' }, '?model='));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://rag-api.example.com/api/analyze');
+  });
+
   it('forwards ?model to the upstream verbatim when the request has one', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
