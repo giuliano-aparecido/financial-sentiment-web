@@ -113,7 +113,7 @@ describe('POST /api/analyze', () => {
       vi
         .fn()
         .mockResolvedValue(
-          new Response(JSON.stringify({ ticker: 'AAPL', predicted_direction: 'BULLISH' }), { status: 200 }),
+          new Response(JSON.stringify({ ticker: 'AAPL', recommendation: 'BUY' }), { status: 200 }),
         ),
     );
     const { POST } = await import('../app/api/analyze/route');

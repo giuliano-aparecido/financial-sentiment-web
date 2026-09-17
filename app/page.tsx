@@ -9,7 +9,9 @@ interface AnalysisResult {
   ticker?: string;
   ticker_was_explicit?: boolean;
   model_architecture?: string;
-  predicted_direction?: 'BULLISH' | 'BEARISH' | string;
+  recommendation?: 'BUY' | 'SELL' | 'HOLD' | string;
+  news_reaction?: string;
+  news_reaction_fallback?: boolean;
   confidence?: number;
   reasoning?: string;
   answer?: string;
@@ -162,16 +164,25 @@ function HomeContent() {
           </div>
 
           <div style={{ marginBottom: '12px' }}>
-            <strong>Predicted Direction:</strong>{' '}
+            <strong>Recommendation:</strong>{' '}
             <span
               style={{
                 fontWeight: 'bold',
-                color: result.predicted_direction === 'BULLISH' ? 'green' : result.predicted_direction === 'BEARISH' ? 'red' : 'gray',
+                color: result.recommendation === 'BUY' ? 'green' : result.recommendation === 'SELL' ? 'red' : 'gray',
               }}
             >
-              {result.predicted_direction}
+              {result.recommendation}
             </span>
           </div>
+
+          {result.news_reaction && (
+            <div style={{ marginBottom: '12px' }}>
+              <strong>News Reaction:</strong> <code>{result.news_reaction}</code>
+              {result.news_reaction_fallback && (
+                <span style={{ color: '#666', fontSize: '13px' }}> (model output unparseable — defaulted to neutral)</span>
+              )}
+            </div>
+          )}
 
           {typeof result.confidence === 'number' && (
             <div style={{ marginBottom: '12px' }}>
