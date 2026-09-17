@@ -30,14 +30,14 @@ app/
   api/analyze/route.ts          Server-side proxy to the RAG API
   api/research/volatility/indicator/{route,start,status,retryOnlyFailed}.ts
                                 Volatility-indicator table: route.ts reads
-                                the latest scheduled scan, start/status
+                                the last persisted scan, start/status
                                 drive a manual Refresh, retryOnlyFailed
                                 re-fetches just the tickers that failed
   api/research/volatility/rebound/{route,start,status,retryOnlyFailed}.ts
                                 Crash-rebound table, same route shape
   api/research/volatility/today/{start,status}.ts
                                 Big-loss-today table - always live/
-                                on-demand, no separate scheduled-read route
+                                on-demand, no separate persisted-read route
   api/auth/[...nextauth]/route.ts   NextAuth handler
 components/SessionProvider.tsx  NextAuth session context + idle-logout
 lib/auth.ts                     NextAuth config (allowlist, dev bypass)
@@ -68,9 +68,8 @@ scans on the RAG API backend (which already runs yfinance in production -
 this Next.js app is deployed on Vercel serverless functions, which can't
 run a 1-3 minute, ~150+ network-call Python script at all, no Python
 runtime and execution time caps far below that). The indicator/rebound
-tables are scanned on a schedule by the backend itself and this app just
-reads the latest result, with a manual Refresh that triggers an early
-scan; the today table is always live/on-demand. Since a live scan takes
+tables show the backend's last persisted scan; Refresh asks the backend
+to run a new one. The today table is always live/on-demand. Since a live scan takes
 too long for a single request/response, its start route kicks off a
 background job on the backend and returns immediately, and the page polls
 the corresponding status route every 5s until it's done - see
