@@ -128,8 +128,9 @@ export default function VolatilityResearchPage() {
             losses).{' '}
             Universe: market cap over CHF 500M, no upper bound - that is the only requirement.{' '}
             At least 50,000 shares traded on average over the last 10 days - thinly-traded names excluded. For
-            research, not investment advice. Indicator and rebound are scanned automatically (monthly / daily) -
-            each also has its own Refresh button to force an early run; Big loss (today) is always live/on-demand.
+            research, not investment advice. Big loss (today) is the live table. Indicator and rebound show
+            their last saved scan and only re-scan when you click Refresh - each scan is a few minutes of
+            Yahoo Finance calls, so they are not run on a schedule.
           </p>
         </div>
         {session?.user?.email && (
@@ -201,8 +202,8 @@ export default function VolatilityResearchPage() {
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Same universe as the other tables below. Shows companies that had AT LEAST ONE trading day closing
           down by the selected % or more AND at least one day closing up by the selected % or more, over the
-          last 12 months - a company with only losses or only gains is omitted. Scanned automatically once a
-          month (see &quot;Last updated&quot; below); Refresh forces an early run covering all three thresholds.
+          last 12 months - a company with only losses or only gains is omitted. Shows the last saved scan (see
+          &quot;Last updated&quot; below); Refresh runs a new one covering all three thresholds.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666' }}>
@@ -239,8 +240,8 @@ export default function VolatilityResearchPage() {
               Last updated ({indicatorThreshold}%): {new Date(indicatorResult.scan_run_at).toLocaleString()}
             </span>
           )}
-          {!indicatorLoading && !indicatorBackendStarting && !indicatorResult.scan_run_at && (
-            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet.</span>
+          {!indicatorLoading && !indicatorBackendStarting && !indicatorResult.is_running && !indicatorResult.scan_run_at && (
+            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet - click Refresh.</span>
           )}
         </div>
 
@@ -274,8 +275,8 @@ export default function VolatilityResearchPage() {
         <h3 style={{ marginBottom: '4px' }}>Indicator of rebound (12 months)</h3>
         <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>
           Down 5%+, then within the next 3 trading days a close 5%+ above THAT crash-day close (not just vs. the
-          previous day - still-falling days don&apos;t quietly count as progress). Scanned automatically once a
-          day (see &quot;Last updated&quot; below); Refresh forces an early run.
+          previous day - still-falling days don&apos;t quietly count as progress). Shows the last saved scan (see
+          &quot;Last updated&quot; below); Refresh runs a new one.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <RefreshButton
@@ -297,8 +298,8 @@ export default function VolatilityResearchPage() {
               Last updated: {new Date(reboundResult.scan_run_at).toLocaleString()}
             </span>
           )}
-          {!reboundLoading && !reboundBackendStarting && !reboundResult.scan_run_at && (
-            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet.</span>
+          {!reboundLoading && !reboundBackendStarting && !reboundResult.is_running && !reboundResult.scan_run_at && (
+            <span style={{ color: '#666', fontSize: '13px' }}>No scan has run yet - click Refresh.</span>
           )}
         </div>
 
@@ -483,10 +484,9 @@ function RefreshButton({
   // isRunning drives the label text, disabled drives whether the button
   // can be clicked at all - kept as separate props. All three tables use
   // this now: rebound/indicator's isRunning reflects scheduler.py's
-  // is_*_scan_running() (true for a cron-started run too, not just one
-  // this button itself triggered - see ReboundScanResult/
-  // IndicatorScanResult's own comment), today's reflects its own
-  // research_job.py job-slot status.
+  // is_*_scan_running() (true for a retry too, not just a full scan this
+  // button itself triggered), today's reflects its own research_job.py
+  // job-slot status.
   return (
     <button
       onClick={onClick}
@@ -547,7 +547,7 @@ function InfoNotice({ children }: { children: React.ReactNode }) {
 function ScanInProgressNotice() {
   return (
     <InfoNotice>
-      A scan is currently running (started automatically or manually) - this can take several minutes. This
+      A scan is currently running - this can take several minutes. This
       table will update automatically once it&apos;s done.
     </InfoNotice>
   );
@@ -581,9 +581,9 @@ function RequestNotSentNotice() {
 
 // Shown when the last completed scan couldn't fetch every ticker (e.g.
 // Yahoo rate-limiting mid-scan) - the table below is real but incomplete,
-// not a display bug. Refresh only retries these specific tickers rather
-// than redoing the whole scan (see financial-sentiment-api's
-// scheduler.py: trigger_rebound_scan/trigger_indicator_scan).
+// not a display bug. The Retry button retries only these tickers (see
+// financial-sentiment-api's scheduler.py: trigger_rebound_retry/
+// trigger_indicator_retry); Refresh is always a full scan.
 function IncompleteScanWarning({ count }: { count: number }) {
   return (
     <p
