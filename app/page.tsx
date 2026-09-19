@@ -165,14 +165,20 @@ function HomeContent() {
 
           <div style={{ marginBottom: '12px' }}>
             <strong>Recommendation:</strong>{' '}
-            <span
-              style={{
-                fontWeight: 'bold',
-                color: result.recommendation === 'BUY' ? 'green' : result.recommendation === 'SELL' ? 'red' : 'gray',
-              }}
-            >
-              {result.recommendation}
-            </span>
+            {result.recommendation ? (
+              <span
+                style={{
+                  fontWeight: 'bold',
+                  color: result.recommendation === 'BUY' ? 'green' : result.recommendation === 'SELL' ? 'red' : 'gray',
+                }}
+              >
+                {result.recommendation}
+              </span>
+            ) : (
+              <span style={{ color: '#666', fontStyle: 'italic' }}>
+                Not available — the model&apos;s response couldn&apos;t be parsed. See the reasoning below for its raw output.
+              </span>
+            )}
           </div>
 
           {result.news_reaction && (
