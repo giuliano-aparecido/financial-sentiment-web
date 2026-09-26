@@ -151,3 +151,12 @@ stays strict).
 No dedicated `CONTRIBUTING.md` yet, but the fleet-wide default (see the
 `AGENTS.md` one directory up, outside this repo, alongside its sibling
 repos) applies: **branch + PR, never push directly to `main`.**
+
+## License
+
+Dual-licensed under either of
+
+- [MIT license](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+at your option.
