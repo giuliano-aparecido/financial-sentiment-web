@@ -7,9 +7,6 @@ to a separate FastAPI backend —
 — which fetches live news and runs a fine-tuned LLM's chain-of-thought
 reasoning against it.
 
-Built as a portfolio/curriculum project — hardened for the practice of
-doing it properly, not because it needs to scale or handle real traffic.
-
 ## Stack
 
 - **Next.js 16** + **React 19** + **TypeScript**
@@ -64,55 +61,35 @@ proxy.ts                        Page-level route protection (was
 ```
 
 **Swiss volatility research page** (`/research/volatility`): runs Python
-scans on the RAG API backend (which already runs yfinance in production -
-this Next.js app is deployed on Vercel serverless functions, which can't
-run a 1-3 minute, ~150+ network-call Python script at all, no Python
-runtime and execution time caps far below that). The indicator/rebound
-tables show the backend's last persisted scan; Refresh asks the backend
-to run a new one. The today table is always live/on-demand. Since a live scan takes
-too long for a single request/response, its start route kicks off a
-background job on the backend and returns immediately, and the page polls
-the corresponding status route every 5s until it's done - see
-`lib/backendAwareFetch.ts` for the shared retry-through-cold-start logic
-behind that polling. Reuses `RAG_API_URL`/`RAG_API_KEY` - same backend,
-same shared secret, no separate env vars needed.
+scans on the RAG API backend, since Vercel's serverless functions can't
+run a multi-minute, many-network-call Python script. The indicator/rebound
+tables show the backend's last persisted scan; Refresh starts a new
+background job and the page polls its status every 5s until done.
 
 `page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
-`valuation`/`earnings` fields (the "analyst pipeline" expansion - see the
-sibling `financial-sentiment-model`/`financial-sentiment-api` repos).
-Each renders only when present and not exactly `"Data unavailable."`, so
-the UI degrades gracefully both against the current API (which doesn't
-send these yet) and against a future one where only some of them fetched
-successfully.
+`valuation`/`earnings` fields (the "analyst pipeline" expansion — see the
+sibling `financial-sentiment-model`/`financial-sentiment-api` repos), each
+rendered only when present so the UI degrades gracefully against an API
+that hasn't sent them yet.
 
 A query goes through `app/api/analyze/route.ts`, never directly from the
-browser to the RAG API — `lib/backendProxy.ts` (shared by every proxy
-route, not just this one) is where `RAG_API_URL`/`RAG_API_KEY` are
-actually read, so the shared secret never reaches client-side JS. The
-route also re-checks the session server-side (defense in depth:
-`proxy.ts`'s matcher is what actually gates this today, but a careless
-regex edit there shouldn't be able to silently expose an endpoint that
-spends paid inference quota), validates/caps the request body, and
-applies a best-effort per-user rate limit (`lib/rateLimit.ts` — in-memory,
-per-process, not a real security boundary on Vercel's serverless model;
-the API's own global rate limit is the actual backstop).
+browser to the RAG API — `lib/backendProxy.ts` is the only place
+`RAG_API_URL`/`RAG_API_KEY` are read, so the shared secret never reaches
+client-side JS. The route also re-checks the session server-side,
+validates/caps the request body, and applies a best-effort per-user rate
+limit.
 
 ## Auth
 
-Google OAuth via NextAuth, gated by an email allowlist
-(`ALLOWED_EMAILS`) — this app has no database, so the allowlist lives
-entirely in `lib/auth.ts`'s env var, fails closed (unset/empty denies
-everyone). In development (`NODE_ENV=development`), a `CredentialsProvider`
-auto-signs in as a fixed `dev@local.test` user and `proxy.ts` skips its
-own check entirely — no real Google credentials needed locally.
+Google OAuth via NextAuth, gated by an email allowlist (`ALLOWED_EMAILS`)
+— fails closed (unset/empty denies everyone). In development, a
+`CredentialsProvider` auto-signs in as a fixed dev user, no real Google
+credentials needed locally.
 
-**Idle logout**: `components/SessionProvider.tsx` signs a user out after
-15 minutes of no activity, persisting a last-activity timestamp to
-`localStorage` rather than relying on a plain in-memory timer — a naive
-`setTimeout`-only version doesn't actually work on mobile, where a
-backgrounded tab getting discarded and reloaded resets an in-memory timer
-to a fresh 15 minutes with no memory of how long the user was actually
-away. See the component's own comments for the full explanation.
+**Idle logout**: signs a user out after 15 minutes of no activity,
+persisting the last-activity timestamp to `localStorage` rather than a
+plain in-memory timer — a `setTimeout`-only version doesn't survive a
+backgrounded mobile tab getting discarded and reloaded.
 
 ## Local development
 
