@@ -1,5 +1,9 @@
 # Financial RAG Reasoning Engine — Frontend
 
+*An experimental project exploring agentic coding workflows with Claude Code.*
+*The backend it talks to is also an experiment in LoRA fine-tuning and
+self-hosting a small LLM.*
+
 A single-page Next.js UI for a financial-news sentiment/reasoning demo:
 enter a stock query (optionally with a `$TICKER` cashtag), and it proxies
 to a separate FastAPI backend —
@@ -17,48 +21,15 @@ reasoning against it.
 
 ## Architecture
 
-```
-app/
-  page.tsx                    The main page: query box, results
-  research/volatility/page.tsx  Swiss volatility research page - three
-                                tables (indicator/rebound/today), each
-                                with its own Refresh button (see below)
-  login/page.tsx               Sign-in page (Google OAuth in production)
-  api/analyze/route.ts          Server-side proxy to the RAG API
-  api/research/volatility/indicator/{route,start,status,retryOnlyFailed}.ts
-                                Volatility-indicator table: route.ts reads
-                                the last persisted scan, start/status
-                                drive a manual Refresh, retryOnlyFailed
-                                re-fetches just the tickers that failed
-  api/research/volatility/rebound/{route,start,status,retryOnlyFailed}.ts
-                                Crash-rebound table, same route shape
-  api/research/volatility/today/{start,status}.ts
-                                Big-loss-today table - always live/
-                                on-demand, no separate persisted-read route
-  api/auth/[...nextauth]/route.ts   NextAuth handler
-components/SessionProvider.tsx  NextAuth session context + idle-logout
-lib/auth.ts                     NextAuth config (allowlist, dev bypass)
-lib/backendProxy.ts             Shared session/allowlist/rate-limit guard
-                                and upstream-fetch/error-mapping helpers
-                                used by every route above - the only place
-                                RAG_API_KEY is ever read, so it never
-                                reaches the browser bundle
-lib/backendAwareFetch.ts        Shared cold-start retry logic for the
-                                volatility page's polling/refresh flows
-lib/volatilityScans.ts          Row/result/status types, the three
-                                per-table scan hooks (fetch/poll/
-                                refresh/retry), and CSV export helpers
-                                for the volatility page
-lib/rateLimit.ts                Best-effort per-user rate limit on the proxy
-                                routes - parameterized (window/max) so the
-                                research routes can use a stricter/looser
-                                budget than /api/analyze's, under a
-                                differently-prefixed key so the buckets
-                                don't collide
-proxy.ts                        Page-level route protection (was
-                                middleware.ts before the Next.js 16 upgrade
-                                renamed the convention)
-```
+`app/` holds the pages (the main query page, the Swiss volatility
+research page, sign-in) and their API routes, which are thin proxies to
+`financial-sentiment-api` — the shared secret used to call it is only
+ever read in `lib/backendProxy.ts`, never sent to the browser. `lib/`
+holds the cross-route helpers this proxying needs (rate limiting,
+cold-start retry, the volatility page's polling/CSV-export logic).
+`components/SessionProvider.tsx` handles the NextAuth session and idle
+logout. `proxy.ts` is page-level route protection (Next.js 16's renamed
+`middleware.ts`).
 
 **Swiss volatility research page** (`/research/volatility`): runs Python
 scans on the RAG API backend, since Vercel's serverless functions can't
