@@ -61,7 +61,7 @@ function HomeContent() {
     <main style={{ maxWidth: '800px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2>📈 Open-Source Financial RAG Reasoning Engine</h2>
+          <h2>📈 Open-Source Financial Sentiment Reasoning Engine</h2>
           <p style={{ color: '#666' }}>
             Enter any stock query or news prompt. The engine fetches real-time news and runs fine-tuned chain-of-thought reasoning.
           </p>
@@ -112,7 +112,7 @@ function HomeContent() {
             cursor: loading ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading ? 'Fetching RAG News & Reasoning...' : 'Analyze Stock'}
+          {loading ? 'Fetching News & Reasoning...' : 'Analyze Stock'}
         </button>
       </div>
 
@@ -219,7 +219,7 @@ function HomeContent() {
           )}
 
           <div>
-            <strong>Retrieved RAG News Context:</strong>
+            <strong>Retrieved News Context:</strong>
             <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', backgroundColor: '#fff', padding: '12px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '13px', overflowX: 'auto' }}>
               {result.live_news_retrieved}
             </pre>
