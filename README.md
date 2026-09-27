@@ -21,21 +21,18 @@ reasoning against it.
 
 ## Architecture
 
-`app/` holds the pages (the main query page, the Swiss volatility
-research page, sign-in) and their API routes, which are thin proxies to
-`financial-sentiment-api` — the shared secret used to call it is only
-ever read in `lib/backendProxy.ts`, never sent to the browser. `lib/`
-holds the cross-route helpers this proxying needs (rate limiting,
-cold-start retry, the volatility page's polling/CSV-export logic).
-`components/SessionProvider.tsx` handles the NextAuth session and idle
-logout. `proxy.ts` is page-level route protection (Next.js 16's renamed
-`middleware.ts`).
+`app/` holds the pages (the main query page, sign-in) and their API
+routes, which are thin proxies to `financial-sentiment-api` — the shared
+secret used to call it is only ever read in `lib/backendProxy.ts`, never
+sent to the browser. `lib/` holds the cross-route helpers this proxying
+needs (rate limiting, cold-start retry). `components/SessionProvider.tsx`
+handles the NextAuth session and idle logout. `proxy.ts` is page-level
+route protection (Next.js 16's renamed `middleware.ts`).
 
-**Swiss volatility research page** (`/research/volatility`): runs Python
-scans on the RAG API backend, since Vercel's serverless functions can't
-run a multi-minute, many-network-call Python script. The indicator/rebound
-tables show the backend's last persisted scan; Refresh starts a new
-background job and the page polls its status every 5s until done.
+The Swiss volatility research pages that used to live here moved to
+[`financial-research-web`](https://github.com/GiulianoAparecido/financial-research-web)
+(private) / [`financial-research-api`](https://github.com/GiulianoAparecido/financial-research-api),
+so this repo is only the AI-reasoning feature.
 
 `page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
 `valuation`/`earnings` fields (the "analyst pipeline" expansion — see the
@@ -77,8 +74,8 @@ running (or deployed) at the URL configured in `RAG_API_URL`.
 ## Tests / build
 
 ```bash
-npx vitest run    # route-handler tests (analyze/research proxy error
-                   # mapping, rate-limit key isolation)
+npx vitest run    # route-handler tests (analyze proxy error mapping,
+                   # rate-limit key isolation)
 npx tsc --noEmit
 npm run build      # also catches Edge Runtime issues in proxy.ts that
                    # tsc alone won't; requires NEXTAUTH_SECRET set (any
