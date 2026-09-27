@@ -11,6 +11,11 @@ to a separate FastAPI backend —
 — which fetches live news and runs a fine-tuned LLM's chain-of-thought
 reasoning against it.
 
+## Documentation
+
+- [`PROJECT.md`](PROJECT.md) — architecture, key design decisions, auth,
+  idle logout
+
 ## Stack
 
 - **Next.js 16** + **React 19** + **TypeScript**
@@ -18,46 +23,6 @@ reasoning against it.
   auto-signin dev user locally
 - Plain inline styles (`style={{}}`), no CSS framework — this is a small
   enough app that a stylesheet/Tailwind wasn't worth the setup
-
-## Architecture
-
-`app/` holds the pages (the main query page, sign-in) and their API
-routes, which are thin proxies to `financial-sentiment-api` — the shared
-secret used to call it is only ever read in `lib/backendProxy.ts`, never
-sent to the browser. `lib/` holds the cross-route helpers this proxying
-needs (rate limiting, cold-start retry). `components/SessionProvider.tsx`
-handles the NextAuth session and idle logout. `proxy.ts` is page-level
-route protection (Next.js 16's renamed `middleware.ts`).
-
-The Swiss volatility research pages that used to live here moved to
-[`financial-research-web`](https://github.com/GiulianoAparecido/financial-research-web)
-(private) / [`financial-research-api`](https://github.com/GiulianoAparecido/financial-research-api),
-so this repo is only the AI-reasoning feature.
-
-`page.tsx`'s `AnalysisResult` type includes optional `answer`/`market_data`/
-`valuation`/`earnings` fields (the "analyst pipeline" expansion — see the
-sibling `financial-sentiment-model`/`financial-sentiment-api` repos), each
-rendered only when present so the UI degrades gracefully against an API
-that hasn't sent them yet.
-
-A query goes through `app/api/analyze/route.ts`, never directly from the
-browser to the RAG API — `lib/backendProxy.ts` is the only place
-`RAG_API_URL`/`RAG_API_KEY` are read, so the shared secret never reaches
-client-side JS. The route also re-checks the session server-side,
-validates/caps the request body, and applies a best-effort per-user rate
-limit.
-
-## Auth
-
-Google OAuth via NextAuth, gated by an email allowlist (`ALLOWED_EMAILS`)
-— fails closed (unset/empty denies everyone). In development, a
-`CredentialsProvider` auto-signs in as a fixed dev user, no real Google
-credentials needed locally.
-
-**Idle logout**: signs a user out after 15 minutes of no activity,
-persisting the last-activity timestamp to `localStorage` rather than a
-plain in-memory timer — a `setTimeout`-only version doesn't survive a
-backgrounded mobile tab getting discarded and reloaded.
 
 ## Local development
 
