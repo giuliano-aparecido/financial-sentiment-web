@@ -17,13 +17,13 @@ function LoginContent() {
   const error = searchParams.get('error');
   // proxy.ts's withAuth middleware appends ?callbackUrl=<original path> when
   // it redirects an unauthenticated request here - reusing it (instead of
-  // always hardcoding '/') is what makes signing in from a deep link (e.g.
-  // /research/volatility) land back on that page instead of always
-  // bouncing to the main page. Falls back to '/' when absent (e.g. a user
-  // navigating to /login directly). NextAuth's own default `redirect`
-  // callback (not overridden in lib/auth.ts) already restricts this to
-  // same-origin URLs, so an attacker-crafted callbackUrl pointing off-site
-  // can't be used as an open redirect here.
+  // always hardcoding '/') is what makes signing in from a deep link land
+  // back on that page instead of always bouncing to the main page. Falls
+  // back to '/' when absent (e.g. a user navigating to /login directly).
+  // NextAuth's own default `redirect` callback (not overridden in
+  // lib/auth.ts) already restricts this to same-origin URLs, so an
+  // attacker-crafted callbackUrl pointing off-site can't be used as an
+  // open redirect here.
   const callbackUrl = searchParams.get('callbackUrl') || '/';
 
   return (

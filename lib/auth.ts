@@ -1,7 +1,6 @@
 import { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { isResearchAllowed } from './researchAccess';
 
 const IS_DEV = process.env.NODE_ENV === 'development';
 const DEV_EMAIL = 'dev@local.test';
@@ -21,8 +20,6 @@ const ALLOWED_EMAILS = new Set(
     .filter(Boolean),
 );
 
-// A signed-in session alone no longer implies this - ALLOWED_EMAILS_RESEARCH-only
-// accounts can sign in too (see the signIn callback below).
 export function isAllowedEmail(email: string | null | undefined): boolean {
   return !!email && ALLOWED_EMAILS.has(email.toLowerCase());
 }
@@ -48,7 +45,7 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user }) {
       if (IS_DEV) return true;
-      return isAllowedEmail(user.email) || isResearchAllowed(user.email);
+      return isAllowedEmail(user.email);
     },
   },
   // Ceiling only, not the real enforcement - components/SessionProvider.tsx's

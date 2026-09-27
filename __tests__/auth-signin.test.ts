@@ -1,13 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// ALLOWED_EMAILS and ALLOWED_EMAILS_RESEARCH are independent allowlists -
-// signIn must accept membership in either one, not require ALLOWED_EMAILS
-// specifically (see lib/auth.ts's signIn callback and proxy.ts/api/analyze's
-// own path-specific enforcement of which pages a research-only session can
-// actually reach).
-vi.mock('@/lib/researchAccess', () => ({
-  isResearchAllowed: (email: string | null | undefined) => email === 'research-only@example.com',
-}));
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('authOptions.callbacks.signIn', () => {
   const originalEnv = { ...process.env };
@@ -16,26 +7,20 @@ describe('authOptions.callbacks.signIn', () => {
     vi.resetModules();
     (process.env as { NODE_ENV: string }).NODE_ENV = 'production';
     process.env.NEXTAUTH_SECRET = 'test-secret';
-    process.env.ALLOWED_EMAILS = 'general-only@example.com';
+    process.env.ALLOWED_EMAILS = 'allowed@example.com';
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
   });
 
-  it('allows sign-in for an ALLOWED_EMAILS-only email', async () => {
+  it('allows sign-in for an ALLOWED_EMAILS email', async () => {
     const { authOptions } = await import('../lib/auth');
-    const result = await authOptions.callbacks!.signIn!({ user: { email: 'general-only@example.com' } } as never);
+    const result = await authOptions.callbacks!.signIn!({ user: { email: 'allowed@example.com' } } as never);
     expect(result).toBe(true);
   });
 
-  it('allows sign-in for an ALLOWED_EMAILS_RESEARCH-only email', async () => {
-    const { authOptions } = await import('../lib/auth');
-    const result = await authOptions.callbacks!.signIn!({ user: { email: 'research-only@example.com' } } as never);
-    expect(result).toBe(true);
-  });
-
-  it('denies sign-in for an email in neither list', async () => {
+  it('denies sign-in for an email not in the list', async () => {
     const { authOptions } = await import('../lib/auth');
     const result = await authOptions.callbacks!.signIn!({ user: { email: 'nobody@example.com' } } as never);
     expect(result).toBe(false);

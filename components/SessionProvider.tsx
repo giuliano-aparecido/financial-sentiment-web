@@ -33,8 +33,7 @@ function IdleLogoutWatcher() {
       // Goes through signOutToLogin (not a plain signOut call) so the page
       // the user was idled out on is preserved as /login's callbackUrl,
       // same as the manual "Sign out" button - otherwise re-signing in
-      // always landed on '/' instead of back on e.g.
-      // /research/volatility.
+      // always landed on '/' instead of back where they were.
       signOutToLogin({ error: 'SessionExpired' });
     };
 
