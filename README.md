@@ -1,5 +1,7 @@
 # Financial RAG Reasoning Engine — Frontend
 
+*An experimental project exploring agentic coding workflows with Claude Code.*
+
 A single-page Next.js UI for a financial-news sentiment/reasoning demo:
 enter a stock query (optionally with a `$TICKER` cashtag), and it proxies
 to a separate FastAPI backend —
