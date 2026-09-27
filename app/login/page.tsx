@@ -38,7 +38,7 @@ function LoginContent() {
       }}
     >
       <div style={{ maxWidth: '360px', width: '100%', textAlign: 'center' }}>
-        <h2>📈 Financial RAG Reasoning Engine</h2>
+        <h2>📈 Financial Sentiment Reasoning Engine</h2>
         <p style={{ color: '#666', marginBottom: '24px' }}>Sign in with Google to continue</p>
 
         {error && (
