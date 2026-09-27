@@ -7,7 +7,7 @@ self-hosting a small LLM.*
 A single-page Next.js UI for a financial-news sentiment/reasoning demo:
 enter a stock query (optionally with a `$TICKER` cashtag), and it proxies
 to a separate FastAPI backend —
-[`financial-sentiment-api`](https://github.com/GiulianoAparecido/financial-sentiment-api)
+[`financial-sentiment-api`](https://github.com/giuliano-aparecido/financial-sentiment-api)
 — which fetches live news and runs a fine-tuned LLM's chain-of-thought
 reasoning against it.
 
@@ -68,7 +68,7 @@ cp .env.local.example .env.local   # RAG_API_URL/RAG_API_KEY at minimum;
 npm run dev
 ```
 
-Requires [`financial-sentiment-api`](https://github.com/GiulianoAparecido/financial-sentiment-api)
+Requires [`financial-sentiment-api`](https://github.com/giuliano-aparecido/financial-sentiment-api)
 running (or deployed) at the URL configured in `RAG_API_URL`.
 
 ## Tests / build
