@@ -1,4 +1,4 @@
-# Financial RAG Reasoning Engine — Frontend
+# Financial Sentiment Reasoning Engine — Frontend
 
 *An experimental project exploring agentic coding workflows with Claude Code.*
 *The backend it talks to is also an experiment in LoRA fine-tuning and
